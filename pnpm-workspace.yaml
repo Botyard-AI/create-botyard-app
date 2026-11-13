@@ -1,0 +1,10 @@
+packages:
+  - packages/*
+  - templates/*
+
+# Supply chain: do not install a dependency version until it has been public
+# for 3 days (most malicious releases are pulled within hours).
+minimumReleaseAge: 4320
+# Supply chain: no dependency may run install scripts unless listed here.
+onlyBuiltDependencies: []
+strictDepBuilds: true

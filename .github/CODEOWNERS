@@ -1,0 +1,9 @@
+# Every change needs a review from a Botyard-AI maintainer (enforced by the
+# main ruleset, .github/rulesets/main.json).
+*                   @Botyard-AI/create-botyard-app-maintainers
+
+# Changes to governance, CI and release need the same team. They are listed
+# separately so a later, narrower default owner cannot weaken them.
+/.github/           @Botyard-AI/create-botyard-app-maintainers
+/scripts/           @Botyard-AI/create-botyard-app-maintainers
+/SECURITY.md        @Botyard-AI/create-botyard-app-maintainers
