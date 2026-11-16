@@ -1,12 +1,12 @@
 import type { CallOptions, ToolCaller } from "../src/index.ts"
 
-export type Call = {
+type Call = {
   tool: string
   args: Record<string, unknown> | undefined
   opts: CallOptions | undefined
 }
 
-export type Handler = (args: Record<string, unknown> | undefined) => unknown
+type Handler = (args: Record<string, unknown> | undefined) => unknown
 
 /** A ToolCaller that answers from a table and records every call. */
 export class FakeTools implements ToolCaller {
@@ -37,7 +37,7 @@ export class FakeTools implements ToolCaller {
   }
 }
 
-export const MEMBERS = [
+const MEMBERS = [
   {
     user_id: "u-jakob",
     role_id: "owner",
@@ -63,7 +63,7 @@ export function fakeTools(): FakeTools {
   return new FakeTools().on("list_org_members", membersHandler())
 }
 
-export type CapturedLogger = {
+type CapturedLogger = {
   warnings: string[]
   warn(message: string): void
 }

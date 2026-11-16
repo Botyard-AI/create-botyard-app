@@ -384,7 +384,7 @@ export function createRuntime(options: RuntimeOptions = {}): Runtime {
  * name ends in `__<name>` (an MCP client's `<server>__<tool>` namespacing).
  * More than one such tool is an error rather than a guess.
  */
-export function match(
+function match(
   tools: readonly ToolDescriptor[],
   tool: string,
   kind?: TransportKind

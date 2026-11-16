@@ -22,9 +22,7 @@
       "project": ["**/*.js"]
     },
     "packages/ui": {
-      "entry": ["index.js"],
       "project": ["**/*.js"]
     }
-  },
-  "ignore": [".github/**"]
+  }
 }

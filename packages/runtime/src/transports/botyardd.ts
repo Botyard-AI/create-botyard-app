@@ -36,7 +36,7 @@ const MAX_STDERR_BYTES = 8 * 1024
 /** Time the CLI gets past its own `--timeout-seconds` before we kill it. */
 const KILL_GRACE_MS = 5_000
 
-export type BotyarddTransportOptions = {
+type BotyarddTransportOptions = {
   /** Path to the `botyardd` binary. */
   readonly path?: string
   /** Environment for the child. Defaults to `process.env`. */
