@@ -180,3 +180,41 @@ test("guards stop authorizing from a stale list: removal and demotion take effec
   await assert.rejects(botpage.requireMember(jakob, { roles: ["owner"] }), { status: 403, code: "role_not_allowed" });
   await assert.rejects(botpage.requireMember(vera), { status: 403, code: "not_a_member" });
 });
+
+test("an owner read on an early page does not pass the guard when the listing outlives the bound", async () => {
+  let now = 0;
+  let release: (() => void) | null = null;
+  let slow = true;
+  let members: unknown[] = [
+    { user_id: "u-jakob", role_id: "owner", user: { email: "jakob@botyard.io" } },
+    { user_id: "u-vera", role_id: "member", user: { email: "vera@botyard.io" } },
+  ];
+  const tools = fakeTools().on("list_org_members", async (args) => {
+    const offset = Number(args?.["offset"] ?? 0);
+    const limit = Number(args?.["limit"] ?? 100);
+    if (slow && offset > 0) {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    }
+    return { total: members.length, members: members.slice(offset, offset + limit) };
+  });
+  const botpage = createBotPage({
+    tools,
+    env,
+    members: { ttlMs: 60_000, maxStaleMs: 300_000, retryAfterMs: 5_000, pageSize: 1, now: () => now },
+  });
+  const jakob = nodeReq({ "x-forwarded-user": "jakob@botyard.io" });
+
+  const guard = botpage.requireMember(jakob, { roles: ["owner"] });
+  await new Promise((resolve) => setImmediate(resolve));
+  // Page 1 (owner) is in; Jakob is demoted while page 2 hangs past the bound.
+  members = [{ user_id: "u-jakob", role_id: "viewer", user: { email: "jakob@botyard.io" } }, members[1]];
+  now = 360_000;
+  (release as (() => void) | null)?.();
+  await assert.rejects(guard, BotPageToolError);
+
+  slow = false;
+  now += 5_000;
+  await assert.rejects(botpage.requireMember(jakob, { roles: ["owner"] }), { status: 403, code: "role_not_allowed" });
+});
