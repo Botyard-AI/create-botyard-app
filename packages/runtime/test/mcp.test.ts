@@ -188,6 +188,77 @@ describe("mcp transport", () => {
     assert.ok(endless.pulled() <= 515, `pulled ${endless.pulled()} chunks`);
   });
 
+  /**
+   * A body whose first chunk is `bytes` long and whose cancel() never
+   * settles: stream cleanup a caller must not wait for.
+   */
+  function neverSettlingCancelBody(status: number, bytes: number): { response: Response; cancelled: () => boolean } {
+    let cancelled = false;
+    let sent = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent) return new Promise<void>(() => undefined);
+        sent = true;
+        controller.enqueue(new Uint8Array(bytes).fill(0x61));
+        return undefined;
+      },
+      cancel() {
+        cancelled = true;
+        return new Promise<void>(() => undefined);
+      },
+    });
+    return { response: new Response(body, { status }), cancelled: () => cancelled };
+  }
+
+  /** Settles with the rejection, or fails the test if `ms` passes first. */
+  async function settlesWithin<T>(promise: Promise<T>, ms: number): Promise<unknown> {
+    let timer: NodeJS.Timeout | undefined;
+    const outcome = await Promise.race([
+      promise.then(
+        () => ({ settled: true, error: undefined as unknown }),
+        (error: unknown) => ({ settled: true, error }),
+      ),
+      new Promise<{ settled: false; error: unknown }>((resolve) => {
+        timer = setTimeout(() => resolve({ settled: false, error: undefined }), ms);
+      }),
+    ]);
+    clearTimeout(timer);
+    assert.ok(outcome.settled, `the call was still pending after ${ms} ms`);
+    return outcome.error;
+  }
+
+  test("an oversized 5xx body whose cancel() never settles cannot outlive the deadline", async () => {
+    const body = neverSettlingCancelBody(502, 8 * 1024);
+    const { rt, calls } = runtime([toolsList(NAMES), () => body.response]);
+    const err = await settlesWithin(rt.call("create_task", { title: "x" }, { timeoutMs: 50 }), 1000);
+    assert.ok(err instanceof OutcomeUnknownError && /HTTP 502/.test(err.message), String(err));
+    assert.ok(body.cancelled(), "the rest of the body was not cancelled");
+    assert.equal(calls().length, 1);
+  });
+
+  test("an oversized 4xx body whose cancel() never settles is still a prompt TransportError", async () => {
+    const body = neverSettlingCancelBody(403, 8 * 1024);
+    const { rt } = runtime([toolsList(NAMES), () => body.response]);
+    const err = await settlesWithin(rt.call("create_task", {}, { timeoutMs: 50 }), 1000);
+    assert.ok(err instanceof TransportError && /HTTP 403/.test(err.message), String(err));
+    assert.ok(body.cancelled());
+  });
+
+  test("an oversized success body whose cancel() never settles is a prompt outcome-unknown", async () => {
+    const body = neverSettlingCancelBody(200, 32 * 1024 * 1024 + 1);
+    const { rt } = runtime([toolsList(NAMES), () => body.response]);
+    const err = await settlesWithin(rt.call("create_task", {}, { timeoutMs: 50 }), 2000);
+    assert.ok(err instanceof OutcomeUnknownError && /exceeds/.test(err.message), String(err));
+    assert.ok(body.cancelled());
+  });
+
+  test("a stalled body whose cancel() never settles still ends at the deadline", async () => {
+    const body = neverSettlingCancelBody(502, 0);
+    const { rt } = runtime([toolsList(NAMES), () => body.response]);
+    const err = await settlesWithin(rt.call("create_task", {}, { timeoutMs: 50 }), 1000);
+    assert.ok(err instanceof OutcomeUnknownError, String(err));
+  });
+
   test("a failing tools/list is a TransportError, even on an ambiguous status", async () => {
     const { rt } = runtime([() => json({}, 502)]);
     await assert.rejects(rt.call("create_task"), (err: unknown) => err instanceof TransportError);

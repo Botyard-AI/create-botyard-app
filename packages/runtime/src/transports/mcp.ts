@@ -220,7 +220,8 @@ async function readBounded(response: Response, signal: AbortSignal): Promise<str
 
 /**
  * Read at most `max` bytes of the body, then cancel the rest. Stops early,
- * without error, when `signal` aborts.
+ * without error, when `signal` aborts. Cancellation is started, never
+ * awaited, on both paths.
  */
 async function readUpTo(response: Response, signal: AbortSignal, max: number): Promise<{ text: string; truncated: boolean }> {
   if (response.body === null) return { text: "", truncated: false };
@@ -239,7 +240,10 @@ async function readUpTo(response: Response, signal: AbortSignal, max: number): P
       if (value.byteLength > room) {
         chunks.push(value.subarray(0, room));
         truncated = true;
-        await reader.cancel().catch(() => undefined);
+        // Start cancellation, but never wait for it: the underlying source's
+        // cleanup may not settle, and the call's deadline must still hold.
+        // Cancelling closes the stream at once, so nothing reads it again.
+        void reader.cancel().catch(() => undefined);
         break;
       }
       chunks.push(value);
