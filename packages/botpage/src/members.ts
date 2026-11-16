@@ -1,0 +1,179 @@
+import { BotPageToolError } from "./errors.ts";
+import type { ToolCaller } from "./tools.ts";
+
+/** One member of the bot's Botyard organization. */
+export interface OrgMember {
+  readonly userId: string;
+  readonly email: string | null;
+  readonly name: string | null;
+  /** The member's org role id, e.g. `owner`, `admin`, `member`, `viewer`. */
+  readonly role: string | null;
+  /**
+   * Always `null` for now: `list_org_members` does not return avatars yet.
+   * Kept in the type so apps can render one as soon as it does.
+   */
+  readonly avatarUrl: string | null;
+}
+
+export interface MemberDirectoryOptions {
+  /** How long a fetched member list is served before refetching. Default 60 s. */
+  ttlMs?: number;
+  /** After a failed refresh, how long stale data is served before retrying. Default 5 s. */
+  retryAfterMs?: number;
+  /** Members fetched per `list_org_members` call (1-100). Default 100. */
+  pageSize?: number;
+  /** Stop paginating after this many members. Default 10 000. */
+  maxMembers?: number;
+  /** Per-call timeout passed to the tool caller. Default 10 s. */
+  timeoutMs?: number;
+  /** Clock, for tests. */
+  now?: () => number;
+}
+
+export const LIST_ORG_MEMBERS_TOOL = "list_org_members";
+
+interface Snapshot {
+  readonly byEmail: ReadonlyMap<string, OrgMember>;
+  readonly byUserId: ReadonlyMap<string, OrgMember>;
+  readonly expiresAt: number;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+/**
+ * Parse one entry of `list_org_members`:
+ * `{ user_id, role_id, user: { user_id, email, name } }`. Returns `null` for
+ * entries that have no user id.
+ */
+export function parseMember(entry: unknown): OrgMember | null {
+  if (!isRecord(entry)) return null;
+  const user = isRecord(entry["user"]) ? entry["user"] : {};
+  const userId = optionalString(entry["user_id"]) ?? optionalString(user["user_id"]);
+  if (userId === null) return null;
+  return {
+    userId,
+    email: optionalString(user["email"]),
+    name: optionalString(user["name"]),
+    role: optionalString(entry["role_id"]),
+    avatarUrl: optionalString(user["avatar_url"]) ?? optionalString(user["image"]),
+  };
+}
+
+function parsePage(response: unknown): { members: unknown[]; total: number | null } {
+  if (!isRecord(response) || !Array.isArray(response["members"])) {
+    throw new BotPageToolError(LIST_ORG_MEMBERS_TOOL, "response has no members array");
+  }
+  const total = response["total"];
+  return { members: response["members"], total: typeof total === "number" ? total : null };
+}
+
+/**
+ * The bot's org members, fetched through `list_org_members` and cached for a
+ * TTL. All lookups in a process share one cached copy and at most one
+ * in-flight refresh, so the platform sees one paginated listing per TTL per
+ * process however many viewers arrive. Looking up an unknown subject never
+ * forces a refetch.
+ */
+export class MemberDirectory {
+  readonly #tools: ToolCaller;
+  readonly #ttlMs: number;
+  readonly #retryAfterMs: number;
+  readonly #pageSize: number;
+  readonly #maxMembers: number;
+  readonly #timeoutMs: number;
+  readonly #now: () => number;
+  #snapshot: Snapshot | null = null;
+  #inflight: Promise<Snapshot> | null = null;
+
+  constructor(tools: ToolCaller, options: MemberDirectoryOptions = {}) {
+    this.#tools = tools;
+    this.#ttlMs = options.ttlMs ?? 60_000;
+    this.#retryAfterMs = options.retryAfterMs ?? 5_000;
+    this.#pageSize = Math.min(100, Math.max(1, options.pageSize ?? 100));
+    this.#maxMembers = options.maxMembers ?? 10_000;
+    this.#timeoutMs = options.timeoutMs ?? 10_000;
+    this.#now = options.now ?? Date.now;
+  }
+
+  /**
+   * Find a member by email (case-insensitive) or user id. Resolves `null`
+   * when the subject is not a member. Rejects with {@link BotPageToolError}
+   * only when there is no member list at all, fresh or stale.
+   */
+  async lookup(subject: string): Promise<OrgMember | null> {
+    const snapshot = await this.#current();
+    return snapshot.byUserId.get(subject) ?? snapshot.byEmail.get(subject.toLowerCase()) ?? null;
+  }
+
+  /** Every cached member. */
+  async list(): Promise<OrgMember[]> {
+    return [...(await this.#current()).byUserId.values()];
+  }
+
+  /** Drop the cache; the next lookup refetches. */
+  invalidate(): void {
+    this.#snapshot = null;
+  }
+
+  async #current(): Promise<Snapshot> {
+    const snapshot = this.#snapshot;
+    if (snapshot !== null && snapshot.expiresAt > this.#now()) return snapshot;
+    this.#inflight ??= this.#refresh().finally(() => {
+      this.#inflight = null;
+    });
+    return this.#inflight;
+  }
+
+  async #refresh(): Promise<Snapshot> {
+    try {
+      const members = await this.#fetchAll();
+      const byEmail = new Map<string, OrgMember>();
+      const byUserId = new Map<string, OrgMember>();
+      for (const member of members) {
+        byUserId.set(member.userId, member);
+        if (member.email !== null) byEmail.set(member.email.toLowerCase(), member);
+      }
+      const fresh = { byEmail, byUserId, expiresAt: this.#now() + this.#ttlMs };
+      this.#snapshot = fresh;
+      return fresh;
+    } catch (error) {
+      const stale = this.#snapshot;
+      if (stale !== null) {
+        // Serve stale data rather than locking every viewer out, and back off
+        // so a failing platform is not hammered once per request.
+        const backedOff = { ...stale, expiresAt: this.#now() + this.#retryAfterMs };
+        this.#snapshot = backedOff;
+        return backedOff;
+      }
+      if (error instanceof BotPageToolError) throw error;
+      throw new BotPageToolError(LIST_ORG_MEMBERS_TOOL, "call failed", { cause: error });
+    }
+  }
+
+  async #fetchAll(): Promise<OrgMember[]> {
+    const members: OrgMember[] = [];
+    let offset = 0;
+    while (offset < this.#maxMembers) {
+      const response = await this.#tools.call(
+        LIST_ORG_MEMBERS_TOOL,
+        { limit: this.#pageSize, offset },
+        { timeoutMs: this.#timeoutMs },
+      );
+      const page = parsePage(response);
+      for (const entry of page.members) {
+        const member = parseMember(entry);
+        if (member !== null) members.push(member);
+      }
+      offset += page.members.length;
+      if (page.members.length < this.#pageSize) break;
+      if (page.total !== null && offset >= page.total) break;
+    }
+    return members;
+  }
+}
