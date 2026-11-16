@@ -136,13 +136,67 @@ export function loadMockFixtures(path: string): MockOptions {
       cause: err,
     })
   }
-  if (!isRecord(parsed))
-    throw new TransportError(`mock fixtures in ${path} must be a JSON object`, {
-      transport: "mock",
-    })
-  const file = parsed as MockFixtureFile
+  const malformed = (detail: string): TransportError =>
+    new TransportError(`mock fixtures in ${path} ${detail}`, { transport: "mock" })
+  if (!isRecord(parsed)) throw malformed("must be a JSON object")
+  const { identity, tools } = parsed
   return {
-    ...(file.identity === undefined ? {} : { identity: file.identity }),
-    ...(file.tools === undefined ? {} : { tools: file.tools }),
+    ...(identity === undefined ? {} : { identity: parseIdentity(identity, malformed) }),
+    ...(tools === undefined ? {} : { tools: parseTools(tools, malformed) }),
   }
+}
+
+type Malformed = (detail: string) => TransportError
+type IdentityKey = "slug" | "name" | "org_id" | "org_slug"
+
+const ERROR_KINDS = ["tool", "invalid_input", "outcome_unknown", "transport"] as const
+type ErrorKind = (typeof ERROR_KINDS)[number]
+
+function isErrorKind(value: unknown): value is ErrorKind {
+  return ERROR_KINDS.some((kind) => kind === value)
+}
+
+function parseIdentity(value: unknown, malformed: Malformed): MockIdentity {
+  if (!isRecord(value) || typeof value["id"] !== "string") {
+    throw malformed('must give "identity" as an object with a string "id"')
+  }
+  const optional = (key: IdentityKey): Partial<Record<IdentityKey, string>> => {
+    const field = value[key]
+    if (field === undefined) return {}
+    if (typeof field !== "string") throw malformed(`must give "identity.${key}" as a string`)
+    return { [key]: field }
+  }
+  return {
+    id: value["id"],
+    ...optional("slug"),
+    ...optional("name"),
+    ...optional("org_id"),
+    ...optional("org_slug"),
+  }
+}
+
+function parseTools(value: unknown, malformed: Malformed): Record<string, MockFixture> {
+  if (!isRecord(value)) throw malformed('must give "tools" as an object')
+  const tools: Record<string, MockFixture> = {}
+  for (const [name, fixture] of Object.entries(value)) {
+    tools[name] = parseFixture(name, fixture, malformed)
+  }
+  return tools
+}
+
+function parseFixture(name: string, value: unknown, malformed: Malformed): MockFixture {
+  if (!isRecord(value)) throw malformed(`must give tool "${name}" as an object`)
+  if ("result" in value) return { result: value["result"] }
+  const error = value["error"]
+  if (!isRecord(error)) throw malformed(`must give tool "${name}" a "result" or an "error"`)
+  const { kind, message } = error
+  if (!isErrorKind(kind)) {
+    throw malformed(
+      `gives tool "${name}" an unknown error kind; use one of ${ERROR_KINDS.join(", ")}`
+    )
+  }
+  if (typeof message !== "string") {
+    throw malformed(`must give tool "${name}" a string "error.message"`)
+  }
+  return { error: { kind, message } }
 }

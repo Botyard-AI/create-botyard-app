@@ -33,6 +33,11 @@ Packages are released separately. A release section is headed
 - `@botyard/runtime`: `call()` now rejects `args` whose `toJSON()` does not
   produce a JSON object with `InvalidInputError`, before anything is sent.
   Before, the non-object value was sent as the tool's arguments.
+- `@botyard/runtime`: `loadMockFixtures()` (and `BOTYARD_RUNTIME_MOCK_FIXTURES`)
+  now validates the whole file and throws `TransportError` naming the problem,
+  such as an unknown `error.kind` or a non-string `error.message`. Before, a
+  malformed fixture loaded and failed later at call time, with an unrelated
+  error.
 
 ## [@botyard/botpage@0.1.0] - 2026-11-16
 

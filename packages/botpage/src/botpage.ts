@@ -125,8 +125,9 @@ function isLocalBind(address: string): boolean {
 }
 
 function defaultEnv(): Readonly<Record<string, string | undefined>> {
-  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
-  return proc?.env ?? {}
+  // Edge runtimes may have no `process`, although Node's types always declare it.
+  if (typeof process === "undefined") return {}
+  return process.env
 }
 
 function nonLoopbackWarning(address: string): string {

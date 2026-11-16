@@ -17,7 +17,9 @@ export type RequestLike = {
 }
 
 function isWebHeaders(headers: Headers | NodeHeaderBag): headers is Headers {
-  return typeof (headers as { get?: unknown }).get === "function"
+  // Node's bag can hold a header literally named "get", but never a function.
+  const get: unknown = headers["get"]
+  return typeof get === "function"
 }
 
 /**

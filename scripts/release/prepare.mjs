@@ -65,7 +65,7 @@ if (!notes) fail(`CHANGELOG.md section "${heading}" is empty`)
 writeFileSync(join(env("RUNNER_TEMP"), "release-notes.md"), `${notes}\n`)
 
 // 3. Compare with what is already on npm.
-const res = await fetch(`${REGISTRY}/${name.replace("/", "%2F")}`, {
+const res = await fetch(`${REGISTRY}/${name.replaceAll("/", "%2F")}`, {
   headers: { accept: "application/json" },
 })
 if (res.status !== 200 && res.status !== 404)

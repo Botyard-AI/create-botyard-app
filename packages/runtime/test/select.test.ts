@@ -7,6 +7,9 @@ import { describe, onTestFinished, test } from "vitest"
 import {
   createMockTransport,
   createRuntime,
+  InvalidInputError,
+  loadMockFixtures,
+  OutcomeUnknownError,
   selectTransport,
   TransportError,
 } from "../src/index.ts"
@@ -199,5 +202,54 @@ describe("transport selection", () => {
       org: { id: "org-1", slug: "acme" },
       transport: "mock",
     })
+  })
+
+  test("fixture files are validated on load, including nested fixtures", async () => {
+    const dir = await tempDir()
+    const load = async (content: unknown): Promise<unknown> => {
+      const path = join(dir, "fixtures.json")
+      await writeFile(path, JSON.stringify(content))
+      return loadMockFixtures(path)
+    }
+    const cases: [unknown, RegExp][] = [
+      [[], /must be a JSON object/],
+      [{ tools: [] }, /"tools" as an object/],
+      [{ tools: { a: 1 } }, /tool "a" as an object/],
+      [{ tools: { a: {} } }, /tool "a" a "result" or an "error"/],
+      [{ tools: { a: { error: { kind: "tools", message: "x" } } } }, /unknown error kind/],
+      [{ tools: { a: { error: { kind: "tool", message: 1 } } } }, /"error.message"/],
+      [{ identity: { slug: "x" } }, /string "id"/],
+      [{ identity: { id: "b", org_slug: 1 } }, /"identity.org_slug" as a string/],
+    ]
+    for (const [content, message] of cases) {
+      await assert.rejects(
+        load(content),
+        (err: unknown) => {
+          return err instanceof TransportError && message.test(err.message)
+        },
+        JSON.stringify(content)
+      )
+    }
+  })
+
+  test("every error kind in a fixture file maps to its error", async () => {
+    const dir = await tempDir()
+    const path = join(dir, "fixtures.json")
+    await writeFile(
+      path,
+      JSON.stringify({
+        tools: {
+          t: { error: { kind: "tool", message: "tool said no" } },
+          i: { error: { kind: "invalid_input", message: "bad" } },
+          o: { error: { kind: "outcome_unknown", message: "maybe" } },
+          x: { error: { kind: "transport", message: "down" } },
+        },
+      })
+    )
+    const rt = createRuntime({ transport: createMockTransport(loadMockFixtures(path)), env: {} })
+    await assert.rejects(rt.call("t"), /tool said no/)
+    await assert.rejects(rt.call("i"), InvalidInputError)
+    await assert.rejects(rt.call("o"), OutcomeUnknownError)
+    await assert.rejects(rt.call("x"), TransportError)
   })
 })
