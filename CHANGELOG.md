@@ -16,6 +16,35 @@ Packages are released separately. A release section is headed
 - Release workflow: per-package npm publishing through trusted publishing with
   provenance, gated by the `npm-publish` environment. See `docs/releasing.md`.
 
+## [@botyard/botpage@0.1.0] - 2026-11-16
+
+### Added
+
+- `createBotPage({ tools })`: viewer identity, guards and deeplinks for apps
+  served as Botyard Bot Pages. `tools` is any `ToolCaller`, such as the
+  `@botyard/runtime` client.
+- `viewer(req)` reads only `x-forwarded-user`, the one identity header the
+  Bot Page proxy sets, and enriches the viewer through `list_org_members`
+  with a per-process TTL cache. Failed refreshes back off, and a stale list
+  authorizes for at most `maxStaleMs` past its TTL before guards fail closed.
+  `avatarUrl` is `null` until the platform returns avatars.
+- Pluggable `IdentitySource`, with a closed set of failure reasons, ready for
+  signed viewer assertions. The header strategy is `trustedForwardedUser()`.
+- Bot viewers: a bot's shadow address (`bot+<id>@bots.botyard.internal`)
+  resolves to `{ kind: "bot", botId }` with no email and no directory lookup.
+- `requireMember(req, { roles })` guard: 401, 403, or 503 from the adapters
+  when the directory is unavailable.
+- Dev viewer override (`devViewer` / `BOTYARD_DEV_VIEWER`), refused when
+  `NODE_ENV=production` and ignored unless the server listens on loopback.
+- Loopback guards: `listenLoopback()` refuses non-loopback hosts;
+  `guardListen()` and `bind` warn on wider binds.
+- `deeplinks.resolve(key, params)` resolves Botyard app links through
+  `list_navigation_destinations`, from each destination's `path` and `search`
+  (a list of `{ name, value }`) templates. It throws `DeeplinkUnavailableError`
+  until that tool returns them.
+- Adapters: `@botyard/botpage/node`, `@botyard/botpage/hono` (optional peer
+  `hono`) and `@botyard/botpage/next`.
+
 ## [@botyard/runtime@0.1.0] - 2026-11-16
 
 ### Added

@@ -1,24 +1,65 @@
 {
   "name": "@botyard/botpage",
-  "version": "0.0.1-alpha.0",
-  "description": "Part of create-botyard-app. Placeholder release; the real package is coming.",
+  "version": "0.1.0",
+  "description": "Viewer identity, membership guards and deeplinks for apps served as Botyard Bot Pages.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Botyard-AI/create-botyard-app.git",
     "directory": "packages/botpage"
   },
-  "homepage": "https://github.com/Botyard-AI/create-botyard-app#readme",
+  "homepage": "https://github.com/Botyard-AI/create-botyard-app/tree/main/packages/botpage#readme",
   "bugs": "https://github.com/Botyard-AI/create-botyard-app/issues",
+  "keywords": [
+    "botyard",
+    "bot-page",
+    "identity"
+  ],
   "type": "module",
-  "exports": "./index.js",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    },
+    "./hono": {
+      "types": "./dist/hono.d.ts",
+      "default": "./dist/hono.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "default": "./dist/next.js"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
-    "index.js"
+    "dist",
+    "!dist/**/*.test.*"
   ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test"
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --test-reporter=spec \"test/**/*.test.ts\""
+  },
+  "peerDependencies": {
+    "hono": "^4.6.0"
+  },
+  "peerDependenciesMeta": {
+    "hono": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@hono/node-server": "^2.1.8",
+    "@types/node": "^22.19.0",
+    "hono": "^4.13.0",
+    "typescript": "~6.0.3"
   }
 }
