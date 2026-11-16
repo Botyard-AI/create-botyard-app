@@ -1,24 +1,44 @@
 {
   "name": "@botyard/runtime",
-  "version": "0.0.1-alpha.0",
-  "description": "Part of create-botyard-app. Placeholder release; the real package is coming.",
+  "version": "0.1.0",
+  "description": "Call Botyard platform tools from a bot app: one call() over the native daemon (botyardd) or the OpenClaw MCP proxy, with a mock for tests.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Botyard-AI/create-botyard-app.git",
     "directory": "packages/runtime"
   },
-  "homepage": "https://github.com/Botyard-AI/create-botyard-app#readme",
+  "homepage": "https://github.com/Botyard-AI/create-botyard-app/tree/main/packages/runtime#readme",
   "bugs": "https://github.com/Botyard-AI/create-botyard-app/issues",
-  "type": "module",
-  "exports": "./index.js",
-  "files": [
-    "index.js"
+  "keywords": [
+    "botyard",
+    "mcp",
+    "agents",
+    "sdk"
   ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --test-reporter=spec \"test/**/*.test.ts\"",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2"
   }
 }
