@@ -2,7 +2,7 @@ import { BotPageToolError } from "./errors.ts"
 import type { ToolCaller } from "./tools.ts"
 
 /** One member of the bot's Botyard organization. */
-export interface OrgMember {
+export type OrgMember = {
   readonly userId: string
   readonly email: string | null
   readonly name: string | null
@@ -15,7 +15,7 @@ export interface OrgMember {
   readonly avatarUrl: string | null
 }
 
-export interface MemberDirectoryOptions {
+export type MemberDirectoryOptions = {
   /** How long a fetched member list is served before refetching. Default 60 s. */
   ttlMs?: number
   /**
@@ -46,7 +46,7 @@ export interface MemberDirectoryOptions {
 
 export const LIST_ORG_MEMBERS_TOOL = "list_org_members"
 
-interface Snapshot {
+type Snapshot = {
   readonly byEmail: ReadonlyMap<string, OrgMember>
   readonly byUserId: ReadonlyMap<string, OrgMember>
   /** When the fetch that produced this list began. */

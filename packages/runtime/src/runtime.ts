@@ -39,7 +39,7 @@ export const ENV = {
   MOCK_FIXTURES: "BOTYARD_RUNTIME_MOCK_FIXTURES",
 } as const
 
-export interface RuntimeOptions {
+export type RuntimeOptions = {
   /** Force a transport by kind, or pass your own. Overrides `BOTYARD_RUNTIME_TRANSPORT`. */
   transport?: TransportKind | Transport
   /** Environment to detect from. Defaults to `process.env`. */
@@ -60,7 +60,7 @@ export interface RuntimeOptions {
   fetch?: typeof fetch
 }
 
-export interface Runtime extends ToolCaller {
+export type Runtime = {
   /** The transport this runtime chose. */
   readonly transportKind: TransportKind
   /** Why it chose it, e.g. "daemon socket /home/x/.botyard/daemon.sock". */
@@ -71,9 +71,9 @@ export interface Runtime extends ToolCaller {
   resolveToolName(tool: string, opts?: CallOptions): Promise<string>
   /** The bot, its org and the transport in use. Cached after the first success. */
   getIdentity(opts?: CallOptions): Promise<Identity>
-}
+} & ToolCaller
 
-interface Selected {
+type Selected = {
   readonly transport: Transport
   readonly reason: string
 }

@@ -8,7 +8,7 @@ import { isLoopbackAddress } from "./loopback.ts"
  */
 export type ViewerType = "user" | "bot" | "unknown"
 
-interface IdentityBase {
+type IdentityBase = {
   readonly ok: true
   /**
    * The audience the credential was issued for (a Bot Page exposure id) when
@@ -20,25 +20,25 @@ interface IdentityBase {
 }
 
 /** A person, or a principal the source cannot classify. */
-export interface PersonIdentity extends IdentityBase {
+export type PersonIdentity = {
   readonly viewerType: "user" | "unknown"
   /** Stable subject: an email address or a Botyard user id. */
   readonly subject: string
   /** The viewer's email when the source knows it, else `null`. */
   readonly email: string | null
-}
+} & IdentityBase
 
 /**
  * A Botyard bot viewing its own page (the only bot the proxy lets in).
  * Bots have no mailbox and are never org members.
  */
-export interface BotIdentity extends IdentityBase {
+export type BotIdentity = {
   readonly viewerType: "bot"
   /** The bot id; also the `subject`, as in a signed viewer assertion. */
   readonly subject: string
   readonly botId: string
   readonly email: null
-}
+} & IdentityBase
 
 /** Who the request says the viewer is, before any directory lookup. */
 export type ViewerIdentity = PersonIdentity | BotIdentity
@@ -72,7 +72,7 @@ export type IdentityFailureReason =
   | "untrusted_issuer"
   | "key_unavailable"
 
-export interface IdentityFailure {
+export type IdentityFailure = {
   readonly ok: false
   readonly reason: IdentityFailureReason
   readonly source: string
@@ -92,7 +92,7 @@ export type IdentityResult = ViewerIdentity | IdentityFailure
  * {@link IdentityFailure}, never an exception and never a fallback to a
  * weaker source. Throw only for programming errors.
  */
-export interface IdentitySource {
+export type IdentitySource = {
   readonly name: string
   identify(req: RequestLike): IdentityResult | Promise<IdentityResult>
 }
@@ -124,7 +124,7 @@ export function parseForwardedUser(raw: string | readonly string[]): string | nu
   return SUBJECT_PATTERN.test(subject) ? subject : null
 }
 
-export interface TrustedForwardedUserOptions {
+export type TrustedForwardedUserOptions = {
   /**
    * Refuse the header (`untrusted_peer`) when the request's TCP peer is known
    * and is not loopback. The Bot Page tunnel connects from inside the bot over

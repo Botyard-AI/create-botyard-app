@@ -10,18 +10,18 @@ import type { BotPage, RequireMemberOptions, Viewer } from "./botpage.ts"
 import type { RequestLike } from "./headers.ts"
 import { guardFailure } from "./responses.ts"
 
-export interface BotPageVariables {
+export type BotPageVariables = {
   viewer: Viewer | null
 }
 
-export interface BotPageEnv {
+export type BotPageEnv = {
   Variables: BotPageVariables
 }
 
-export interface ViewerMiddlewareOptions extends RequireMemberOptions {
+export type ViewerMiddlewareOptions = {
   /** `member`: answer 401/403 unless the viewer is an org member. Default: no guard. */
   require?: "member"
-}
+} & RequireMemberOptions
 
 /**
  * The socket @hono/node-server puts in `c.env.incoming`. Other runtimes pass

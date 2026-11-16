@@ -1,6 +1,6 @@
 import type { TransportKind } from "./types.ts"
 
-export interface BotyardErrorOptions {
+export type BotyardErrorOptions = {
   /** The canonical tool name the caller asked for, when the error is about a call. */
   readonly tool?: string | undefined
   /** The transport that produced the error, once one has been chosen. */
@@ -49,12 +49,12 @@ export class UnknownToolError extends InvalidInputError {
   }
 }
 
-export interface ToolErrorOptions extends BotyardErrorOptions {
+export type ToolErrorOptions = {
   /** The MCP content blocks the tool returned with its error. */
   readonly content?: readonly unknown[] | undefined
   /** The tool's structured error payload, when it sent one. */
   readonly structuredContent?: unknown
-}
+} & BotyardErrorOptions
 
 /**
  * The tool ran and reported an error (MCP `isError: true`), for example "not

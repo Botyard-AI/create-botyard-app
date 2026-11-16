@@ -46,7 +46,7 @@ const RPC_INVALID_REQUEST = -32600
 const RPC_METHOD_NOT_FOUND = -32601
 const RPC_INVALID_PARAMS = -32602
 
-export interface McpTransportOptions {
+export type McpTransportOptions = {
   /** Full MCP endpoint URL, e.g. `http://127.0.0.1:9092/mcp`. */
   readonly url: string | URL
   /** Injection point for tests. Defaults to the global `fetch`. */

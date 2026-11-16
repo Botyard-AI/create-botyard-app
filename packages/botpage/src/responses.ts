@@ -1,6 +1,6 @@
 import { BotPageAuthError, BotPageToolError } from "./errors.ts"
 
-export interface GuardFailure {
+export type GuardFailure = {
   readonly status: 401 | 403 | 503
   readonly body: { readonly error: string; readonly message: string }
 }

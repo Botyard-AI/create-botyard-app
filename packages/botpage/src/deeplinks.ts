@@ -41,7 +41,7 @@ export class DeeplinkUnavailableError extends DeeplinkError {
 }
 
 /** A navigation directory entry, as far as this package needs it. */
-export interface NavigationDestination {
+export type NavigationDestination = {
   readonly key: string
   readonly label: string
   readonly requiredParams: readonly string[]
@@ -55,12 +55,12 @@ export interface NavigationDestination {
 }
 
 /** One query param of a destination's `search` template. */
-export interface NavigationSearchParam {
+export type NavigationSearchParam = {
   readonly name: string
   readonly value: string
 }
 
-export interface DeeplinksOptions {
+export type DeeplinksOptions = {
   /** Botyard app origin. Default `https://app.botyard.io`. Must be https. */
   appUrl?: string
   /** The bot's org slug. Default: read once from `get_identity`. */

@@ -15,6 +15,24 @@ Packages are released separately. A release section is headed
   rulesets and repository settings as code.
 - Release workflow: per-package npm publishing through trusted publishing with
   provenance, gated by the `npm-publish` environment. See `docs/releasing.md`.
+- Tooling: the Botyard monorepo's TypeScript standard. ESLint 9 with the shared
+  config in `tooling/eslint-config` and a type-aware zero-`any` layer, Prettier,
+  Vitest 4, knip, TypeScript 5.9.3 and a shared `tsconfig.base.json`. CI runs
+  lint, format check, typecheck, test, build and knip.
+
+### Changed
+
+- `@botyard/runtime`, `@botyard/botpage`: exported object types are declared
+  with `type` instead of `interface`, as the Botyard TypeScript standard
+  requires. Nothing changes at runtime, and the emitted JavaScript is the same.
+  For TypeScript users, these types can no longer be extended through
+  declaration merging.
+
+### Fixed
+
+- `@botyard/runtime`: `call()` now rejects `args` whose `toJSON()` does not
+  produce a JSON object with `InvalidInputError`, before anything is sent.
+  Before, the non-object value was sent as the tool's arguments.
 
 ## [@botyard/botpage@0.1.0] - 2026-11-16
 

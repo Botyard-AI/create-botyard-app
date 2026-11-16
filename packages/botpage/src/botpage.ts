@@ -12,14 +12,14 @@ import { isLoopbackAddress } from "./loopback.ts"
 import { MemberDirectory, type MemberDirectoryOptions } from "./members.ts"
 import type { ToolCaller } from "./tools.ts"
 
-interface ViewerBase {
+type ViewerBase = {
   readonly subject: string
   /** Identity source that vouched for the viewer, or `dev-viewer` for the dev override. */
   readonly source: string
 }
 
 /** A viewer found in the bot's org through `list_org_members`. */
-export interface MemberViewer extends ViewerBase {
+export type MemberViewer = {
   readonly kind: "member"
   readonly viewerType: "user"
   readonly userId: string
@@ -29,36 +29,36 @@ export interface MemberViewer extends ViewerBase {
   readonly role: string | null
   /** Always `null` for now: `list_org_members` does not return avatars yet. */
   readonly avatarUrl: string | null
-}
+} & ViewerBase
 
 /**
  * An identified person who is not in the org's member list: someone added
  * after the cache was filled, or a subject the directory does not know.
  */
-export interface UnknownViewer extends ViewerBase {
+export type UnknownViewer = {
   readonly kind: "unknown"
   readonly viewerType: "user" | "unknown"
   readonly email: string | null
-}
+} & ViewerBase
 
 /**
  * A Botyard bot viewing its own page. Bots are never org members, so the
  * member directory is not consulted and `requireMember` refuses them.
  */
-export interface BotViewer extends ViewerBase {
+export type BotViewer = {
   readonly kind: "bot"
   readonly viewerType: "bot"
   /** The bot id (also the `subject`). */
   readonly botId: string
-}
+} & ViewerBase
 
 export type Viewer = MemberViewer | UnknownViewer | BotViewer
 
-export interface Logger {
+export type Logger = {
   warn(message: string): void
 }
 
-export interface BotPageOptions {
+export type BotPageOptions = {
   /** Calls Botyard platform tools. Pass the `@botyard/runtime` client, or any {@link ToolCaller}. */
   tools: ToolCaller
   /** How viewers are identified. Default {@link trustedForwardedUser}. */
@@ -89,12 +89,12 @@ export interface BotPageOptions {
   logger?: Logger
 }
 
-export interface RequireMemberOptions {
+export type RequireMemberOptions = {
   /** Allow only these org roles (e.g. `["owner", "admin"]`). Default: any member. */
   roles?: readonly string[]
 }
 
-export interface BotPage {
+export type BotPage = {
   /**
    * Identify the viewer and enrich them from the org directory. Resolves
    * `null` when no viewer could be identified.

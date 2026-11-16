@@ -1,6 +1,6 @@
 import type { CallOptions, ToolCaller } from "../src/index.ts"
 
-export interface Call {
+export type Call = {
   tool: string
   args: Record<string, unknown> | undefined
   opts: CallOptions | undefined
@@ -63,7 +63,7 @@ export function fakeTools(): FakeTools {
   return new FakeTools().on("list_org_members", membersHandler())
 }
 
-export interface CapturedLogger {
+export type CapturedLogger = {
   warnings: string[]
   warn(message: string): void
 }

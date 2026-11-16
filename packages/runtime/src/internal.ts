@@ -22,7 +22,7 @@ export function contentText(content: readonly unknown[]): string {
 }
 
 /** A deadline merged with the caller's signal. Call `dispose()` when done. */
-export interface Deadline {
+export type Deadline = {
   readonly signal: AbortSignal
   /** True when the deadline, not the caller, ended the request. */
   timedOut(): boolean

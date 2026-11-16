@@ -69,7 +69,7 @@ export function requireMember(
   }
 }
 
-export interface GuardListenOptions {
+export type GuardListenOptions = {
   /** Records the bound address so the dev viewer override can check it. */
   botpage?: BotPage
   /** Where the warning goes when `botpage` is not given. Default `console`. */
@@ -102,7 +102,7 @@ export function guardListen(server: Server, options: GuardListenOptions = {}): v
   else server.once("listening", check)
 }
 
-export interface ListenLoopbackOptions {
+export type ListenLoopbackOptions = {
   /** Loopback host to bind. Default `127.0.0.1`. Anything else is refused. */
   host?: string
   botpage?: BotPage

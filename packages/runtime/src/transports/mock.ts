@@ -27,7 +27,7 @@ export type MockFixture =
 /** Computes a response from the arguments. Throw a `BotyardError` to simulate failures. */
 export type MockHandler = (args: Record<string, unknown>) => unknown
 
-export interface MockIdentity {
+export type MockIdentity = {
   readonly id: string
   readonly slug?: string
   readonly name?: string
@@ -35,7 +35,7 @@ export interface MockIdentity {
   readonly org_slug?: string
 }
 
-export interface MockOptions {
+export type MockOptions = {
   /**
    * Tools keyed by their *live* name. Use a prefixed key such as
    * `"botyard__list_org_members"` to exercise name resolution.
@@ -46,21 +46,21 @@ export interface MockOptions {
 }
 
 /** The shape of a fixture file (`BOTYARD_RUNTIME_MOCK_FIXTURES`). */
-export interface MockFixtureFile {
+export type MockFixtureFile = {
   readonly identity?: MockIdentity
   readonly tools?: Readonly<Record<string, MockFixture>>
 }
 
-export interface MockCall {
+export type MockCall = {
   readonly tool: string
   readonly args: Record<string, unknown>
 }
 
-export interface MockTransport extends Transport {
+export type MockTransport = {
   readonly kind: "mock"
   /** Every call that reached the mock, in order, with its live name. */
   readonly calls: readonly MockCall[]
-}
+} & Transport
 
 export const DEFAULT_MOCK_IDENTITY: MockIdentity = {
   id: "00000000-0000-4000-8000-000000000000",

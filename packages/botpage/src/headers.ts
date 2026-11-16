@@ -2,7 +2,7 @@
 export type NodeHeaderBag = Readonly<Record<string, string | readonly string[] | undefined>>
 
 /** Anything with headers: a Web `Request`, or Node's `IncomingMessage`. */
-export interface RequestLike {
+export type RequestLike = {
   readonly headers: Headers | NodeHeaderBag
   /**
    * The TCP socket, when the request came straight from Node's HTTP server.
