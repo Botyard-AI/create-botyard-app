@@ -1,32 +1,43 @@
 {
   "name": "create-botyard-app",
   "version": "0.0.1-alpha.0",
-  "description": "Scaffold a Botyard app. Placeholder release; the real CLI is coming.",
+  "description": "Scaffold a Botyard app: a Node API and a React UI, served as a Bot Page.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Botyard-AI/create-botyard-app.git",
     "directory": "packages/create-botyard-app"
   },
-  "homepage": "https://github.com/Botyard-AI/create-botyard-app#readme",
+  "homepage": "https://github.com/Botyard-AI/create-botyard-app/tree/main/packages/create-botyard-app#readme",
   "bugs": "https://github.com/Botyard-AI/create-botyard-app/issues",
+  "keywords": [
+    "botyard",
+    "bot-page",
+    "scaffold",
+    "create"
+  ],
   "type": "module",
   "bin": {
-    "create-botyard-app": "bin/create-botyard-app.js"
+    "create-botyard-app": "dist/bin.js"
   },
   "files": [
-    "bin"
+    "dist",
+    "templates"
   ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "lint": "eslint --max-warnings 0 .",
-    "test": "vitest run"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && node scripts/bundle-templates.ts"
   },
   "devDependencies": {
     "@botyard/eslint-config": "workspace:*",
+    "@types/node": "^22.20.5",
     "eslint": "^9.39.5",
+    "typescript": "5.9.3",
     "vitest": "^4.1.12"
   }
 }
