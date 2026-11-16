@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
 import { after, test } from "node:test";
 
 import { serve } from "@hono/node-server";

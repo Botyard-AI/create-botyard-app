@@ -1,0 +1,10 @@
+# Prettier also skips everything in .gitignore (dist, coverage, node_modules).
+pnpm-lock.yaml
+# Prose and workflow YAML keep their hand formatting; the monorepo formats code only.
+*.md
+.github/
+# Verbatim copies from the monorepo, which does not format them; keeping them
+# byte-identical makes re-syncing a plain copy.
+tooling/eslint-config/base.js
+tooling/eslint-config/node.js
+tooling/eslint-config/react.js

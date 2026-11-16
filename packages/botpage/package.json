@@ -44,9 +44,10 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint --max-warnings 0 .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test --test-reporter=spec \"test/**/*.test.ts\""
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.build.json"
   },
   "peerDependencies": {
     "hono": "^4.6.0"
@@ -57,9 +58,12 @@
     }
   },
   "devDependencies": {
+    "@botyard/eslint-config": "workspace:*",
     "@hono/node-server": "^2.1.8",
     "@types/node": "^22.19.0",
+    "eslint": "^9.39.5",
     "hono": "^4.13.0",
-    "typescript": "~6.0.3"
+    "typescript": "5.9.3",
+    "vitest": "^4.1.12"
   }
 }
