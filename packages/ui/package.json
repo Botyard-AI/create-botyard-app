@@ -1,0 +1,24 @@
+{
+  "name": "@botyard/ui",
+  "version": "0.0.1-alpha.0",
+  "description": "Part of create-botyard-app. Placeholder release; the real package is coming.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Botyard-AI/create-botyard-app.git",
+    "directory": "packages/ui"
+  },
+  "homepage": "https://github.com/Botyard-AI/create-botyard-app#readme",
+  "bugs": "https://github.com/Botyard-AI/create-botyard-app/issues",
+  "type": "module",
+  "exports": "./index.js",
+  "files": [
+    "index.js"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

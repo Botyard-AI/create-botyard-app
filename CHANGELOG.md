@@ -16,6 +16,27 @@ Packages are released separately. A release section is headed
 - Release workflow: per-package npm publishing through trusted publishing with
   provenance, gated by the `npm-publish` environment. See `docs/releasing.md`.
 
+## [@botyard/runtime@0.0.1-alpha.0] - 2026-11-16
+
+### Added
+
+- Placeholder module that throws a "not ready yet" error on import. It has no
+  API; this prerelease exists to validate trusted publishing for this package.
+
+## [@botyard/botpage@0.0.1-alpha.0] - 2026-11-16
+
+### Added
+
+- Placeholder module that throws a "not ready yet" error on import. It has no
+  API; this prerelease exists to validate trusted publishing for this package.
+
+## [@botyard/ui@0.0.1-alpha.0] - 2026-11-16
+
+### Added
+
+- Placeholder module that throws a "not ready yet" error on import. It has no
+  API; this prerelease exists to validate trusted publishing for this package.
+
 ## [create-botyard-app@0.0.1-alpha.0] - 2026-11-16
 
 ### Added
