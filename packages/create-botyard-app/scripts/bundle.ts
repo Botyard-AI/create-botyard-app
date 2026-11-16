@@ -5,8 +5,9 @@
 //   local env files.
 // - Stores .gitignore and .npmrc under names npm keeps (see BUNDLED_NAMES).
 // - Follows symlinks, so a template can link a shared file such as the ESLint
-//   config, but only to targets inside `root`. The bundle itself contains
-//   regular files and directories only.
+//   config, but only to targets inside `root` that are not excluded by the
+//   rules above, checked on every segment of the real path. The bundle itself
+//   contains regular files and directories only.
 
 import { copyFile, mkdir, readdir, realpath, rm, stat } from "node:fs/promises"
 import path from "node:path"
@@ -14,6 +15,10 @@ import { BUNDLED_NAMES } from "../src/scaffold.ts"
 
 const SKIP_DIRS = new Set(["node_modules", "dist", "coverage", ".turbo", ".vite"])
 const SKIP_FILE = /^\.env(?!\.example$)|\.tsbuildinfo$|^\.DS_Store$/
+
+function isExcluded(name: string): boolean {
+  return SKIP_DIRS.has(name) || SKIP_FILE.test(name)
+}
 
 type BundleOptions = {
   /** Directory with one sub-directory per template. Missing means no templates. */
@@ -55,11 +60,16 @@ async function copyTree(
 ): Promise<void> {
   await mkdir(to)
   for (const entry of await readdir(from)) {
-    if (SKIP_DIRS.has(entry) || SKIP_FILE.test(entry)) continue
+    if (isExcluded(entry)) continue
     const source = path.join(from, entry)
     const real = await realpath(source)
     if (real !== root && !real.startsWith(root + path.sep)) {
       throw new Error(`${source} resolves outside ${root} (${real}).`)
+    }
+    // A symlink must not smuggle in what the names above exclude, under
+    // another name: check every segment of where it really points.
+    if (path.relative(root, real).split(path.sep).some(isExcluded)) {
+      throw new Error(`${source} resolves to an excluded path (${real}).`)
     }
     const info = await stat(real)
     if (info.isDirectory()) {

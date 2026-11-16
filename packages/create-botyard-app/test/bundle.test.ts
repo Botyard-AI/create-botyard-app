@@ -91,6 +91,27 @@ describe("bundleTemplates", () => {
     ).rejects.toThrow(/resolves outside/)
   })
 
+  test.each([
+    ["a local env file", ".env.local", "file"],
+    ["a file in node_modules", "node_modules/pkg/index.js", "file"],
+    ["a dist directory", "dist", "dir"],
+    ["a directory inside coverage", "coverage/html", "dir"],
+  ])("refuses a symlink aliasing %s", async (_label, excluded, kind) => {
+    const root = await tempDir()
+    const real = path.join(root, "elsewhere", excluded)
+    if (kind === "dir") await write(path.join(real, "x.txt"), "secret")
+    else await write(real, "secret")
+    await write(path.join(root, "templates", "a", "x.txt"))
+    await symlink(real, path.join(root, "templates", "a", "innocent"))
+    await expect(
+      bundleTemplates({
+        sourceDir: path.join(root, "templates"),
+        outDir: path.join(root, "out"),
+        root,
+      })
+    ).rejects.toThrow(/resolves to an excluded path/)
+  })
+
   test("refuses a symlink cycle", async () => {
     const root = await tempDir()
     await write(path.join(root, "templates", "a", "x.txt"))
