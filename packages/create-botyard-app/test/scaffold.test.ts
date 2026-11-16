@@ -83,6 +83,73 @@ describe("rollback", () => {
   })
 })
 
+describe("partial writes", () => {
+  test("a file whose write fails is removed with the rest", async () => {
+    const cwd = await tempDir()
+    const targetDir = path.join(cwd, "my-app")
+    const beforeWrite = async (file: string): Promise<void> => {
+      if (file.endsWith("package.json")) throw Object.assign(new Error("EFBIG"), { code: "EFBIG" })
+    }
+    await expect(scaffold({ ...base, targetDir, hooks: { beforeWrite } })).rejects.toThrow(
+      ScaffoldError
+    )
+    expect(await readdir(cwd)).toEqual([])
+  })
+})
+
+describe("swapped ancestors", () => {
+  test("the target swapped for a symlink mid-run is a failure, not a success", async () => {
+    const cwd = await tempDir()
+    const targetDir = path.join(cwd, "my-app")
+    const elsewhere = path.join(cwd, "elsewhere")
+    await mkdir(elsewhere)
+    const swap = async (file: string): Promise<void> => {
+      if (!file.endsWith(".gitignore")) return
+      await rename(targetDir, path.join(cwd, "moved"))
+      await symlink(elsewhere, targetDir)
+    }
+    await expect(scaffold({ ...base, targetDir, hooks: { afterCreate: swap } })).rejects.toThrow(
+      "changed while scaffolding"
+    )
+    // What it wrote through the link is rolled back by inode; the moved
+    // directory keeps the one file written before the swap.
+    expect(await listFiles(elsewhere)).toEqual([])
+    expect(await listFiles(path.join(cwd, "moved"))).toEqual([".gitignore"])
+  })
+
+  test("a nested directory swapped for a symlink mid-run is a failure", async () => {
+    const cwd = await tempDir()
+    const targetDir = path.join(cwd, "my-app")
+    const elsewhere = path.join(cwd, "elsewhere")
+    await mkdir(elsewhere)
+    const swap = async (file: string): Promise<void> => {
+      if (file !== path.join(targetDir, "src")) return
+      await rename(file, path.join(cwd, "moved-src"))
+      await symlink(elsewhere, file)
+    }
+    await expect(scaffold({ ...base, targetDir, hooks: { afterCreate: swap } })).rejects.toThrow(
+      "changed while scaffolding"
+    )
+    expect(await listFiles(elsewhere)).toEqual([])
+  })
+
+  test("an existing target swapped after its check is a failure", async () => {
+    const cwd = await tempDir()
+    const targetDir = path.join(cwd, "my-app")
+    await mkdir(targetDir)
+    const elsewhere = path.join(cwd, "elsewhere")
+    await mkdir(elsewhere)
+    const swap = async (file: string): Promise<void> => {
+      if (!file.endsWith("package.json")) return
+      await rename(targetDir, path.join(cwd, "moved"))
+      await symlink(elsewhere, targetDir)
+    }
+    await expect(scaffold({ ...base, targetDir, hooks: { afterCreate: swap } })).rejects.toThrow(
+      "changed while scaffolding"
+    )
+  })
+})
+
 describe("concurrent writers", () => {
   test("a target created after the check is used only if still empty", async () => {
     const cwd = await tempDir()

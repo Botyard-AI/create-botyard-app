@@ -21,6 +21,8 @@ type ScaffoldHooks = {
   beforeTarget?: () => Promise<void>
   /** Runs after each file or directory is created. */
   afterCreate?: (file: string) => Promise<void>
+  /** Runs after a file is created and before its contents are written. */
+  beforeWrite?: (file: string) => Promise<void>
 }
 
 type ScaffoldOptions = {
@@ -38,7 +40,7 @@ type PlanEntry =
   | { readonly kind: "dir"; readonly rel: string }
   | { readonly kind: "file"; readonly rel: string; readonly data: Buffer | string }
 
-/** Something this run created, identified by inode so rollback never removes a replacement. */
+/** A path and the inode this run created or checked there. */
 type Created = {
   readonly file: string
   readonly dir: boolean
@@ -69,6 +71,12 @@ export async function listTemplates(templatesDir: string): Promise<string[]> {
  *   `mkdir`), so it never overwrites or writes through a symlink, even if
  *   another process writes to the target at the same time. Files are written
  *   once, already named; nothing is rewritten.
+ * - Before reporting success it checks, by device and inode, that the target
+ *   and every entry it created are still at their paths. Exclusive creation
+ *   protects only the last path segment: if another process swaps the target
+ *   or a directory in it for a symlink mid-run, files land where it points.
+ *   They never overwrite anything there, and the check turns the swap into a
+ *   failure instead of a false success.
  * - On failure it removes only what it created, matched by inode: a file
  *   another process put in its place, or anything added to a directory it
  *   created, is left alone. Missing parent directories are left in place.
@@ -89,17 +97,18 @@ export async function scaffold(options: ScaffoldOptions): Promise<void> {
 
   const created: Created[] = []
   try {
-    const target = await createDir(targetDir)
-    if (target === null) await checkTarget(targetDir, false)
+    let target = await createDir(targetDir)
+    if (target === null) target = await checkTarget(targetDir, false)
     else created.push(target)
+    if (target === null) throw new ScaffoldError(`${targetDir} disappeared while scaffolding.`)
 
     for (const entry of plan) {
       const file = path.join(targetDir, entry.rel)
-      created.push(
-        entry.kind === "dir" ? await createDirOrFail(file) : await createFile(file, entry.data)
-      )
+      if (entry.kind === "dir") created.push(await createDirOrFail(file))
+      else await createFile(file, entry.data, created, hooks)
       await hooks.afterCreate?.(file)
     }
+    await verify([target, ...created], targetDir)
   } catch (err) {
     await rollBack(created)
     throw asScaffoldError(err, targetDir)
@@ -162,12 +171,13 @@ async function renamed(
   return `${JSON.stringify(json, null, 2)}\n`
 }
 
-async function checkTarget(targetDir: string, mayBeMissing: boolean): Promise<void> {
+/** Checks that the target is missing or an empty directory; returns its inode when it exists. */
+async function checkTarget(targetDir: string, mayBeMissing: boolean): Promise<Created | null> {
   let stat
   try {
     stat = await lstat(targetDir)
   } catch (err) {
-    if (mayBeMissing && isErrno(err, "ENOENT")) return
+    if (mayBeMissing && isErrno(err, "ENOENT")) return null
     throw err
   }
   if (!stat.isDirectory()) {
@@ -176,6 +186,7 @@ async function checkTarget(targetDir: string, mayBeMissing: boolean): Promise<vo
   if ((await readdir(targetDir)).length > 0) {
     throw new ScaffoldError(`${targetDir} is not empty. Choose a new or empty directory.`)
   }
+  return { file: targetDir, dir: true, dev: stat.dev, ino: stat.ino }
 }
 
 /** Creates a directory exclusively; null when something already exists there. */
@@ -196,7 +207,13 @@ async function createDirOrFail(dir: string): Promise<Created> {
   return created
 }
 
-async function createFile(file: string, data: Buffer | string): Promise<Created> {
+/** Creates and writes a file, recording it in `created` before writing, so a failed write is rolled back. */
+async function createFile(
+  file: string,
+  data: Buffer | string,
+  created: Created[],
+  hooks: ScaffoldHooks
+): Promise<void> {
   let handle
   try {
     // "wx" is O_CREAT | O_EXCL: it fails if anything, even a symlink, is there.
@@ -206,11 +223,35 @@ async function createFile(file: string, data: Buffer | string): Promise<Created>
     throw err
   }
   try {
-    await handle.writeFile(data)
     const { dev, ino } = await handle.stat()
-    return { file, dir: false, dev, ino }
+    created.push({ file, dir: false, dev, ino })
+    await hooks.beforeWrite?.(file)
+    await handle.writeFile(data)
   } finally {
     await handle.close()
+  }
+}
+
+/** Fails unless every path still holds the directory or file this run recorded there. */
+async function verify(expected: readonly Created[], targetDir: string): Promise<void> {
+  for (const item of expected) {
+    let now
+    try {
+      now = await lstat(item.file)
+    } catch {
+      now = null
+    }
+    const same =
+      now !== null &&
+      now.dev === item.dev &&
+      now.ino === item.ino &&
+      (item.dir ? now.isDirectory() : now.isFile())
+    if (!same) {
+      throw new ScaffoldError(
+        `${targetDir} changed while scaffolding: ${item.file} is no longer what was created. ` +
+          "Nothing was overwritten, but some files may have been created where it pointed."
+      )
+    }
   }
 }
 
