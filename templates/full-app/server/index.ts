@@ -9,7 +9,7 @@ import { listenLoopback } from "@botyard/botpage/node"
 import { createRuntime, TransportError } from "@botyard/runtime"
 import { createApp, type Middleware } from "./app.ts"
 import { appRoot, HOST, loadConfig } from "./config.ts"
-import { loadStatic, type StaticFiles } from "./static.ts"
+import { loadStatic, StaticLoadError, type StaticFiles } from "./static.ts"
 
 const dev = process.argv.includes("--dev")
 const config = await loadConfig()
@@ -67,6 +67,10 @@ async function loadBuiltUi(): Promise<StaticFiles> {
   } catch (err) {
     if (err instanceof Error && "code" in err && err.code === "ENOENT") {
       process.stderr.write(`No built UI in ${dir}. Run \`npm run build\` first.\n`)
+      process.exit(1)
+    }
+    if (err instanceof StaticLoadError) {
+      process.stderr.write(`${err.message}\n`)
       process.exit(1)
     }
     throw err

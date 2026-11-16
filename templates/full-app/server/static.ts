@@ -1,5 +1,5 @@
 import { constants } from "node:fs"
-import { lstat, open, readdir, readlink, realpath } from "node:fs/promises"
+import { open, readdir, readlink, realpath } from "node:fs/promises"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import path from "node:path"
 
@@ -22,26 +22,34 @@ type StaticFile = { readonly body: Buffer; readonly type: string }
 /** The built UI, read into memory once at startup. */
 export type StaticFiles = ReadonlyMap<string, StaticFile>
 
+/** The built UI cannot be loaded safely on this system. */
+export class StaticLoadError extends Error {
+  override name = "StaticLoadError"
+}
+
+type LoadOptions = {
+  /** Test seam: runs before each file is opened. */
+  beforeOpen?: (file: string) => Promise<void>
+  /** Test seam: the kernel's path of an open file, or null. Defaults to /proc. */
+  openedPath?: (fd: number) => Promise<string | null>
+}
+
 /**
  * Reads the built UI under `root` into memory, keyed by URL path ("/assets/x.js").
  * Requests are then answered from memory: nothing on disk is opened while the
  * server runs, so changing files under `root` later has no effect until a
  * restart.
  *
- * Only regular files are read. Symlinks are skipped, and so are files that
- * cannot be read. Each file is opened without following a symlink at its own
- * name; on Linux the opened file's real path is then read back from the kernel
- * (/proc/self/fd) and the file is kept only if it is inside `root`, so a
+ * Only regular files are read; symlinks and unreadable files are skipped.
+ * Each file is opened without following a symlink at its own name, then the
+ * kernel's path for the open file (/proc/self/fd) must be inside `root`, so a
  * directory swapped for a symlink while loading cannot pull in an outside
- * file. Without /proc (macOS, Windows) the file must be the one listed at that
- * path, which does not catch such a swap; there, as everywhere, whoever can
- * rename directories under `root` can also replace the UI itself.
+ * file. If that path cannot be read (no /proc, as on macOS and Windows, or
+ * /proc denied), it throws a StaticLoadError rather than serve a file it
+ * cannot place. Use `npm run dev` there.
  */
-export async function loadStatic(
-  root: string,
-  /** Test seam: runs before each file is opened. */
-  beforeOpen?: (file: string) => Promise<void>
-): Promise<StaticFiles> {
+export async function loadStatic(root: string, options: LoadOptions = {}): Promise<StaticFiles> {
+  const { beforeOpen, openedPath = procPath } = options
   const realRoot = await realpath(root)
   const files = new Map<string, StaticFile>()
   const walk = async (dir: string, urlPath: string): Promise<void> => {
@@ -51,7 +59,7 @@ export async function loadStatic(
       if (entry.isDirectory()) await walk(file, url)
       else if (entry.isFile()) {
         await beforeOpen?.(file)
-        const body = await readInside(realRoot, file)
+        const body = await readInside(realRoot, file, openedPath)
         if (body !== null) {
           files.set(url, {
             body,
@@ -65,8 +73,15 @@ export async function loadStatic(
   return files
 }
 
-/** The file's bytes, or null when it is unreadable, not a regular file, or not inside `realRoot`. */
-async function readInside(realRoot: string, file: string): Promise<Buffer | null> {
+/**
+ * The file's bytes, or null when it cannot be opened, is not a regular file,
+ * or is outside `realRoot`. Throws when where it is cannot be determined.
+ */
+async function readInside(
+  realRoot: string,
+  file: string,
+  openedPath: (fd: number) => Promise<string | null>
+): Promise<Buffer | null> {
   let handle
   try {
     handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW)
@@ -74,32 +89,29 @@ async function readInside(realRoot: string, file: string): Promise<Buffer | null
     return null
   }
   try {
-    const opened = await handle.stat()
-    if (!opened.isFile()) return null
+    if (!(await handle.stat()).isFile()) return null
     const where = await openedPath(handle.fd)
-    if (where === undefined) {
-      // No /proc: fall back to checking it is the file listed at that path.
-      const listed = await lstat(file)
-      if (listed.dev !== opened.dev || listed.ino !== opened.ino) return null
-    } else if (where === null || !where.startsWith(realRoot + path.sep)) {
-      return null
+    if (where === null) {
+      throw new StaticLoadError(
+        `Cannot tell where ${file} really is (this needs /proc/self/fd, on Linux), ` +
+          "so the built UI is not served. Bots run on Linux; locally, use `npm run dev`."
+      )
     }
+    if (!where.startsWith(realRoot + path.sep)) return null
     return await handle.readFile()
-  } catch {
-    return null
   } finally {
     await handle.close()
   }
 }
 
-/** The kernel's path of an open file; undefined without /proc, null if unknown. */
-async function openedPath(fd: number): Promise<string | null | undefined> {
-  if (process.platform !== "linux") return undefined
+/** The kernel's path of an open file, from /proc; null when unavailable. */
+async function procPath(fd: number): Promise<string | null> {
+  if (process.platform !== "linux") return null
   try {
     const where = await readlink(`/proc/self/fd/${String(fd)}`)
     return path.isAbsolute(where) && !where.endsWith(" (deleted)") ? where : null
   } catch {
-    return undefined
+    return null
   }
 }
 

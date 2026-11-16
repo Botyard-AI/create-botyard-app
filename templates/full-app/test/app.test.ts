@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/p
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
-import { loadStatic } from "../server/static.ts"
+import { loadStatic, StaticLoadError } from "../server/static.ts"
 import { asViewer, startApp } from "./helpers.ts"
 
 describe("/api/me", () => {
@@ -96,7 +96,8 @@ describe("routing", () => {
   })
 })
 
-describe("serving the built UI", () => {
+// loadStatic needs /proc/self/fd to place each file, so it serves on Linux only.
+describe.skipIf(process.platform !== "linux")("serving the built UI", () => {
   let dir: string
   beforeAll(async () => {
     dir = await mkdtemp(path.join(tmpdir(), "full-app-static-"))
@@ -172,35 +173,31 @@ describe("serving the built UI", () => {
     }
   })
 
-  // Relies on /proc/self/fd; see loadStatic.
-  test.skipIf(process.platform !== "linux")(
-    "a directory swapped for an outside symlink while loading is not read",
-    async () => {
-      const client = path.join(dir, "client")
-      const assets = path.join(client, "assets")
-      const outside = path.join(dir, "outside")
-      await mkdir(outside)
-      await writeFile(path.join(outside, "index-abc.js"), "outside the UI")
-      let swapped = false
-      const swap = async (file: string): Promise<void> => {
-        if (swapped || file !== path.join(assets, "index-abc.js")) return
-        swapped = true
-        await rename(assets, `${assets}.moved`)
-        await symlink(outside, assets)
-      }
-      try {
-        const base = await startApp({ staticFiles: await loadStatic(client, swap) })
-        expect(swapped).toBe(true)
-        const res = await fetch(`${base}/assets/index-abc.js`)
-        expect(res.status).toBe(404)
-        expect(await res.text()).not.toContain("outside the UI")
-      } finally {
-        await rm(assets, { force: true })
-        await rename(`${assets}.moved`, assets)
-        await rm(outside, { recursive: true, force: true })
-      }
+  test("a directory swapped for an outside symlink while loading is not read", async () => {
+    const client = path.join(dir, "client")
+    const assets = path.join(client, "assets")
+    const outside = path.join(dir, "outside")
+    await mkdir(outside)
+    await writeFile(path.join(outside, "index-abc.js"), "outside the UI")
+    let swapped = false
+    const swap = async (file: string): Promise<void> => {
+      if (swapped || file !== path.join(assets, "index-abc.js")) return
+      swapped = true
+      await rename(assets, `${assets}.moved`)
+      await symlink(outside, assets)
     }
-  )
+    try {
+      const base = await startApp({ staticFiles: await loadStatic(client, { beforeOpen: swap }) })
+      expect(swapped).toBe(true)
+      const res = await fetch(`${base}/assets/index-abc.js`)
+      expect(res.status).toBe(404)
+      expect(await res.text()).not.toContain("outside the UI")
+    } finally {
+      await rm(assets, { force: true })
+      await rename(`${assets}.moved`, assets)
+      await rm(outside, { recursive: true, force: true })
+    }
+  })
 
   test("HEAD sends headers without a body", async () => {
     const base = await startApp({ staticFiles: await loadStatic(path.join(dir, "client")) })
@@ -214,6 +211,50 @@ describe("serving the built UI", () => {
     for (const probe of ["/../secret.txt", "/%2e%2e/secret.txt", "/assets/..%2F..%2Fsecret.txt"]) {
       const res = await fetch(`${base}${probe}`)
       expect(await res.text(), probe).not.toContain("outside the UI")
+    }
+  })
+})
+
+// Runs everywhere: where an open file really is cannot be determined (no
+// /proc, or /proc denied), so loading must fail rather than trust the path.
+describe("loading the built UI without /proc", () => {
+  let dir: string
+  beforeAll(async () => {
+    dir = await mkdtemp(path.join(tmpdir(), "full-app-noproc-"))
+    await mkdir(path.join(dir, "client", "assets"), { recursive: true })
+    await writeFile(path.join(dir, "client", "index.html"), "<!doctype html>app")
+    await writeFile(path.join(dir, "client", "assets", "index-abc.js"), "console.log(1)")
+  })
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+  const denied = async (): Promise<string | null> => null
+
+  test("fails closed instead of serving files it cannot place", async () => {
+    await expect(loadStatic(path.join(dir, "client"), { openedPath: denied })).rejects.toThrow(
+      StaticLoadError
+    )
+  })
+
+  test("a directory swapped while loading, with /proc denied, is never read", async () => {
+    const client = path.join(dir, "client")
+    const assets = path.join(client, "assets")
+    const outside = path.join(dir, "outside")
+    await mkdir(outside)
+    await writeFile(path.join(outside, "index-abc.js"), "outside the UI")
+    const swap = async (file: string): Promise<void> => {
+      if (file !== path.join(assets, "index-abc.js")) return
+      await rename(assets, `${assets}.moved`)
+      await symlink(outside, assets)
+    }
+    try {
+      await expect(loadStatic(client, { beforeOpen: swap, openedPath: denied })).rejects.toThrow(
+        StaticLoadError
+      )
+    } finally {
+      await rm(assets, { force: true })
+      await rename(`${assets}.moved`, assets)
+      await rm(outside, { recursive: true, force: true })
     }
   })
 })
