@@ -146,3 +146,43 @@ test("a cold outage backs off: sequential and concurrent lookups share one call 
   assert.equal((await directory.lookup("u-jakob"))?.userId, "u-jakob", "recovers");
   assert.equal(tools.count("list_org_members"), 3);
 });
+
+test("a fetch slower than the staleness bound fails closed, backs off, then recovers", async () => {
+  let now = 0;
+  let release: (() => void) | null = null;
+  let slow = true;
+  const tools = fakeTools();
+  const ok = membersHandler();
+  tools.on("list_org_members", async (args) => {
+    if (slow && Number(args?.["offset"] ?? 0) > 0) {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    }
+    return ok(args);
+  });
+  const directory = new MemberDirectory(tools, { ttlMs: 1000, maxStaleMs: 1000, retryAfterMs: 100, pageSize: 1, now: () => now });
+
+  // Completes just inside the bound: served.
+  let pending = directory.lookup("u-jakob");
+  await new Promise((resolve) => setImmediate(resolve));
+  now = 1999;
+  (release as (() => void) | null)?.();
+  assert.equal((await pending)?.userId, "u-jakob");
+
+  // Completes at the bound: refused, and no tight retry loop.
+  directory.invalidate();
+  now = 10_000;
+  pending = directory.lookup("u-jakob");
+  await new Promise((resolve) => setImmediate(resolve));
+  now = 12_000;
+  (release as (() => void) | null)?.();
+  await assert.rejects(pending, BotPageToolError);
+  const calls = tools.count("list_org_members");
+  await assert.rejects(directory.lookup("u-jakob"), BotPageToolError, "backing off");
+  assert.equal(tools.count("list_org_members"), calls);
+
+  slow = false;
+  now = 12_100;
+  assert.equal((await directory.lookup("u-jakob"))?.userId, "u-jakob", "recovers");
+});

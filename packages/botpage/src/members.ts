@@ -29,7 +29,9 @@ export interface MemberDirectoryOptions {
    * demoted member keeps access during an outage: at most
    * `ttlMs + maxStaleMs` after the last successful fetch began. Past it,
    * lookups fail closed with {@link BotPageToolError} (503 from the
-   * adapters). `0` disables stale serving. Default 5 minutes.
+   * adapters); so does a fetch that itself takes longer than that, since its
+   * first pages are already too old. `0` disables stale serving. Default 5
+   * minutes.
    */
   maxStaleMs?: number;
   /** Members fetched per `list_org_members` call (1-100). Default 100. */
@@ -154,10 +156,15 @@ export class MemberDirectory {
     return this.#inflight;
   }
 
+  /** Whether data read from a fetch that began at `fetchedAt` may still authorize. */
+  #authorizable(fetchedAt: number): boolean {
+    return this.#now() < fetchedAt + this.#ttlMs + this.#maxStaleMs;
+  }
+
   /** The cached list if it is young enough to authorize from, else the last failure. */
   #serve(): Snapshot {
     const snapshot = this.#snapshot;
-    if (snapshot !== null && this.#now() < snapshot.fetchedAt + this.#ttlMs + this.#maxStaleMs) return snapshot;
+    if (snapshot !== null && this.#authorizable(snapshot.fetchedAt)) return snapshot;
     throw this.#lastError ?? new BotPageToolError(LIST_ORG_MEMBERS_TOOL, "member list unavailable");
   }
 
@@ -170,6 +177,12 @@ export class MemberDirectory {
       for (const member of members) {
         byUserId.set(member.userId, member);
         if (member.email !== null) byEmail.set(member.email.toLowerCase(), member);
+      }
+      if (!this.#authorizable(startedAt)) {
+        // The listing took longer than the staleness bound: its first pages
+        // are already too old to authorize from (a member read early may have
+        // been removed or demoted since). Fail closed and back off.
+        throw new BotPageToolError(LIST_ORG_MEMBERS_TOOL, "listing took longer than the staleness bound");
       }
       const fresh = { byEmail, byUserId, fetchedAt: startedAt };
       this.#snapshot = fresh;
