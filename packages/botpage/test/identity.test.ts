@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { test } from "node:test"
+import { test } from "vitest"
 
 import { parseBotShadowAddress, parseForwardedUser, trustedForwardedUser } from "../src/index.ts"
 import { nodeReq } from "./fakes.ts"

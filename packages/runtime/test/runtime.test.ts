@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { describe, test } from "node:test"
+import { describe, onTestFinished, test, vi } from "vitest"
 
 import {
   BotyardError,
@@ -68,8 +68,11 @@ describe("name resolution", () => {
     assert.equal(lists, 1)
   })
 
-  test("a tool assigned after start is found by the refresh", async (t) => {
-    t.mock.timers.enable({ apis: ["Date"] })
+  test("a tool assigned after start is found by the refresh", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
     let names = ["a"]
     const transport: Transport = {
       kind: "mock",
@@ -79,7 +82,7 @@ describe("name resolution", () => {
     const rt = createRuntime({ transport, env: {} })
     await rt.listTools()
     names = ["a", "b"]
-    t.mock.timers.tick(10_000)
+    vi.advanceTimersByTime(10_000)
     assert.equal(await rt.call("b"), "b")
   })
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { createServer, type Server } from "node:http"
-import { after, test } from "node:test"
+import { afterAll, test } from "vitest"
 
 import { serve } from "@hono/node-server"
 import { Hono } from "hono"
@@ -13,7 +13,7 @@ import { captureLogger, fakeTools } from "./fakes.ts"
 
 const env = { NODE_ENV: "test" }
 const servers: Server[] = []
-after(() => {
+afterAll(() => {
   for (const server of servers) server.close()
 })
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { createServer } from "node:net"
 import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { after, describe, test } from "node:test"
+import { describe, onTestFinished, test } from "vitest"
 
 import {
   createMockTransport,
@@ -18,7 +18,7 @@ async function listeningSocket(): Promise<string> {
   const path = join(dir, "daemon.sock")
   const server = createServer()
   await new Promise<void>((resolve) => server.listen(path, resolve))
-  after(() => new Promise<void>((resolve) => server.close(() => resolve())))
+  onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())))
   return path
 }
 
