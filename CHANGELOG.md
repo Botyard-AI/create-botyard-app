@@ -25,8 +25,9 @@ Packages are released separately. A release section is headed
   `@botyard/runtime` client.
 - `viewer(req)` reads only `x-forwarded-user`, the one identity header the
   Bot Page proxy sets, and enriches the viewer through `list_org_members`
-  with a per-process TTL cache. `avatarUrl` is `null` until the platform
-  returns avatars.
+  with a per-process TTL cache. Failed refreshes back off, and a stale list
+  authorizes for at most `maxStaleMs` past its TTL before guards fail closed.
+  `avatarUrl` is `null` until the platform returns avatars.
 - Pluggable `IdentitySource`, with a closed set of failure reasons, ready for
   signed viewer assertions. The header strategy is `trustedForwardedUser()`.
 - Bot viewers: a bot's shadow address (`bot+<id>@bots.botyard.internal`)

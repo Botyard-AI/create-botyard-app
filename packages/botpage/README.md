@@ -63,9 +63,13 @@ const viewer = await botpage.viewer(req);
   and no directory lookup. `requireMember` refuses it.
 - The member list is cached per process (default 60 s, `members.ttlMs`) with
   one in-flight refresh at a time. An unknown subject never forces a refetch.
-  When a refresh fails, the previous list is served and retried after 5 s.
-  With no list at all, calls throw `BotPageToolError` and the adapters answer
-  503.
+  When a refresh fails, the platform is not called again for 5 s
+  (`members.retryAfterMs`), with or without a cached list.
+- During an outage the previous list keeps authorizing for at most
+  `members.maxStaleMs` (default 5 minutes) past its TTL, so a removed or
+  demoted member loses access within `ttlMs + maxStaleMs` of the last
+  successful fetch. Past that, or with no list at all, calls throw
+  `BotPageToolError` and the adapters answer 503.
 
 ### Listen on 127.0.0.1
 
