@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { after, describe, test } from "node:test";
 
 import { createMockTransport, createRuntime, selectTransport, TransportError } from "../src/index.ts";
+import { isLoopbackUrl } from "../src/runtime.ts";
 import { tempDir } from "./helpers.ts";
 
 async function listeningSocket(): Promise<string> {
@@ -54,6 +55,35 @@ describe("transport selection", () => {
     const home = await tempDir();
     const picked = selectTransport({ env: { HOME: home, MCP_PROXY_PORT: "9100", BOTYARD_RUNTIME_MCP_URL: "http://localhost:7000/mcp" } });
     assert.match(picked.reason, /localhost:7000/);
+  });
+
+  test("BOTYARD_RUNTIME_MCP_URL may not send tool traffic off-host", async () => {
+    const home = await tempDir();
+    for (const url of ["https://evil.example/mcp", "http://10.0.0.1:9092/mcp", "http://127.0.0.1.evil.example/mcp", "http://localhost.evil.example/mcp"]) {
+      // Auto-detection and an env-forced mcp transport are both refused.
+      assert.throws(() => selectTransport({ env: { HOME: home, BOTYARD_RUNTIME_MCP_URL: url } }), TransportError, url);
+      assert.throws(
+        () => selectTransport({ env: { HOME: home, BOTYARD_RUNTIME_TRANSPORT: "mcp", BOTYARD_RUNTIME_MCP_URL: url } }),
+        TransportError,
+        url,
+      );
+    }
+  });
+
+  test("only application code may choose a non-loopback MCP URL", async () => {
+    const home = await tempDir();
+    const picked = selectTransport({ env: { HOME: home }, mcpUrl: "https://mcp.internal.example/mcp" });
+    assert.equal(picked.transport.kind, "mcp");
+    assert.match(picked.reason, /mcp\.internal\.example/);
+  });
+
+  test("isLoopbackUrl accepts loopback forms only", () => {
+    for (const url of ["http://127.0.0.1:9092/mcp", "http://127.9.9.9/mcp", "http://localhost:1/mcp", "http://[::1]:9/mcp", "http://0x7f.1/mcp", "http://2130706433/mcp", "https://LOCALHOST/mcp"]) {
+      assert.equal(isLoopbackUrl(url), true, url);
+    }
+    for (const url of ["http://evil.example/mcp", "http://127.0.0.1.evil.example/mcp", "http://localhost.evil.example/", "ftp://127.0.0.1/", "http://10.0.0.1/", "not a url"]) {
+      assert.equal(isLoopbackUrl(url), false, url);
+    }
   });
 
   test("rejects a malformed MCP_PROXY_PORT", async () => {

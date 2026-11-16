@@ -80,7 +80,9 @@ The runtime picks one when it is created:
    `botyardd tools call --input - <name>` with the arguments on stdin.
 3. **`mcp`**, when `MCP_PROXY_PORT` is set (OpenClaw bots): MCP over HTTP to
    the bot bridge's loopback proxy at `http://127.0.0.1:$MCP_PROXY_PORT/mcp`.
-   `BOTYARD_RUNTIME_MCP_URL` overrides the URL.
+   `BOTYARD_RUNTIME_MCP_URL` overrides the URL, but only with a loopback URL
+   (`127.0.0.0/8`, `::1` or `localhost`). To use another host, pass `mcpUrl`
+   to `createRuntime()` in application code.
 
 If none of them applies, it throws a `TransportError` that lists every signal
 it checked. **The mock is never chosen automatically.**
@@ -154,6 +156,13 @@ set `BOTYARD_RUNTIME_TRANSPORT=mock` and
   happens to be readable (for example as root on a privileged bot).
 - **Arguments go to `botyardd` on stdin, never in argv**, where other users
   could read them through `ps`. Error messages never include arguments.
+- **Tool traffic stays on the machine unless your code says otherwise.** An MCP
+  URL taken from the environment must be loopback, so a poisoned environment
+  cannot send tool arguments and results to another host. Only an explicit
+  `mcpUrl` passed by application code may point elsewhere.
+- **Responses are bounded.** Success bodies are capped at 32 MiB and error
+  bodies at 4 KiB; the rest is cancelled, and the call's deadline covers every
+  read.
 - The MCP transport refuses URLs with embedded credentials and does not follow
   redirects.
 

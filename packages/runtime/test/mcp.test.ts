@@ -129,6 +129,65 @@ describe("mcp transport", () => {
     assert.equal(sent, 1);
   });
 
+  /** A body that streams 64 KiB chunks forever, counting how many were pulled. */
+  function endlessBody(status: number): { response: Response; pulled: () => number } {
+    let pulled = 0;
+    const chunk = new Uint8Array(64 * 1024).fill(0x61);
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        controller.enqueue(chunk);
+      },
+    });
+    return { response: new Response(body, { status }), pulled: () => pulled };
+  }
+
+  /** A body that sends nothing and never ends. */
+  function stalledBody(status: number): Response {
+    return new Response(new ReadableStream<Uint8Array>({ pull: () => new Promise<void>(() => undefined) }), { status });
+  }
+
+  test("an oversized 5xx body is read only up to a bound, then cancelled", async () => {
+    const endless = endlessBody(502);
+    const { rt, calls } = runtime([toolsList(NAMES), () => endless.response]);
+    await assert.rejects(rt.call("create_task", { title: "x" }), (err: unknown) => {
+      return err instanceof OutcomeUnknownError && /HTTP 502/.test(err.message) && err.message.length < 1000;
+    });
+    assert.ok(endless.pulled() <= 3, `pulled ${endless.pulled()} chunks`);
+    assert.equal(calls().length, 1);
+  });
+
+  test("an oversized 4xx body is bounded too, and still a TransportError", async () => {
+    const endless = endlessBody(404);
+    const { rt } = runtime([toolsList(NAMES), () => endless.response]);
+    await assert.rejects(rt.call("create_task"), TransportError);
+    assert.ok(endless.pulled() <= 3, `pulled ${endless.pulled()} chunks`);
+  });
+
+  test("a stalled 5xx body cannot outlive the deadline, and the outcome stays unknown", async () => {
+    const { rt } = runtime([toolsList(NAMES), () => stalledBody(502)]);
+    const started = Date.now();
+    await assert.rejects(rt.call("create_task", {}, { timeoutMs: 200 }), (err: unknown) => {
+      return err instanceof OutcomeUnknownError && /HTTP 502/.test(err.message);
+    });
+    assert.ok(Date.now() - started < 2000);
+  });
+
+  test("a stalled 4xx body cannot outlive the deadline, and is still a TransportError", async () => {
+    const { rt } = runtime([toolsList(NAMES), () => stalledBody(401)]);
+    await assert.rejects(rt.call("create_task", {}, { timeoutMs: 200 }), (err: unknown) => {
+      return err instanceof TransportError && /HTTP 401/.test(err.message);
+    });
+  });
+
+  test("an oversized success body is refused as outcome-unknown, without reading it all", async () => {
+    // 32 MiB cap / 64 KiB chunks = 512 chunks; the reader must stop right after.
+    const endless = endlessBody(200);
+    const { rt } = runtime([toolsList(NAMES), () => endless.response]);
+    await assert.rejects(rt.call("create_task"), (err: unknown) => err instanceof OutcomeUnknownError && /exceeds/.test(err.message));
+    assert.ok(endless.pulled() <= 515, `pulled ${endless.pulled()} chunks`);
+  });
+
   test("a failing tools/list is a TransportError, even on an ambiguous status", async () => {
     const { rt } = runtime([() => json({}, 502)]);
     await assert.rejects(rt.call("create_task"), (err: unknown) => err instanceof TransportError);

@@ -33,7 +33,7 @@ export const ENV = {
   TRANSPORT: "BOTYARD_RUNTIME_TRANSPORT",
   /** Path to the `botyardd` binary. */
   BOTYARDD: "BOTYARD_RUNTIME_BOTYARDD",
-  /** Full MCP endpoint URL, overriding the loopback proxy. */
+  /** Full MCP endpoint URL, overriding the proxy port. Loopback URLs only. */
   MCP_URL: "BOTYARD_RUNTIME_MCP_URL",
   /** JSON fixture file for the mock transport. */
   MOCK_FIXTURES: "BOTYARD_RUNTIME_MOCK_FIXTURES",
@@ -46,7 +46,11 @@ export interface RuntimeOptions {
   env?: NodeJS.ProcessEnv;
   /** Path to `botyardd`. */
   botyarddPath?: string;
-  /** Full MCP endpoint URL. */
+  /**
+   * Full MCP endpoint URL. Any host is accepted here, because this is an
+   * explicit choice in application code. `BOTYARD_RUNTIME_MCP_URL` accepts
+   * loopback URLs only.
+   */
   mcpUrl?: string;
   /** Tools and identity for the mock transport. */
   mock?: MockOptions;
@@ -136,13 +140,40 @@ function mcp(options: RuntimeOptions, url: string): Transport {
 }
 
 function mcpUrl(options: RuntimeOptions, env: NodeJS.ProcessEnv): string | undefined {
-  const explicit = options.mcpUrl ?? nonEmpty(env[ENV.MCP_URL]);
-  if (explicit !== undefined) return explicit;
+  // Application code may point anywhere: that is an explicit, reviewable choice.
+  if (options.mcpUrl !== undefined) return options.mcpUrl;
+  // The environment is not trusted to send tool arguments and results
+  // off-host: a URL from it must be loopback, like the bridge proxy itself.
+  const fromEnv = nonEmpty(env[ENV.MCP_URL]);
+  if (fromEnv !== undefined) {
+    if (!isLoopbackUrl(fromEnv)) {
+      throw new TransportError(
+        `${ENV.MCP_URL} must be a loopback URL (127.0.0.0/8, ::1 or localhost); ` +
+          "to use another host, pass mcpUrl to createRuntime() from application code",
+      );
+    }
+    return fromEnv;
+  }
   const port = nonEmpty(env["MCP_PROXY_PORT"]);
   if (port === undefined) return undefined;
   const n = Number(port);
   if (!Number.isInteger(n) || n < 1 || n > 65535) throw new TransportError(`MCP_PROXY_PORT is not a port: "${port}"`);
   return loopback(n);
+}
+
+/** True for an http(s) URL whose host is 127.0.0.0/8, ::1 or localhost. */
+export function isLoopbackUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  const host = url.hostname.toLowerCase();
+  if (host === "localhost" || host === "[::1]") return true;
+  // WHATWG URL normalises IPv4 forms (e.g. 0x7f.1, 2130706433) to dotted quads.
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
 }
 
 function loopback(port: number): string {

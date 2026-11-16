@@ -27,6 +27,8 @@ export const DEFAULT_MCP_PROXY_PORT = 9092;
 
 /** Largest response accepted. */
 const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+/** Most of a non-2xx body read for an error message; the rest is cancelled. */
+const MAX_ERROR_BODY_BYTES = 4 * 1024;
 
 /** Socket errors that prove the request never reached the proxy. */
 const NOT_CONNECTED = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EHOSTUNREACH", "ENETUNREACH", "EADDRNOTAVAIL"]);
@@ -97,7 +99,9 @@ export function createMcpTransport(options: McpTransportOptions): Transport {
       }
 
       if (!response.ok) {
-        const detail = bounded((await safeText(response)).trim(), 300);
+        // The status alone classifies the failure; the body is a bounded,
+        // best-effort detail that can never stall or exhaust memory.
+        const detail = bounded((await errorDetail(response, d.signal)).trim(), 300);
         // 4xx: the proxy or botyard-mcp refused the request (route, method,
         // auth, headers) before any tool ran. 5xx: the bridge answers 502 for
         // both "could not authenticate" and "upstream failed mid-request", so
@@ -208,33 +212,49 @@ function matching(message: unknown, id: number): unknown {
 }
 
 async function readBounded(response: Response, signal: AbortSignal): Promise<string> {
-  if (response.body === null) return "";
+  const { text, truncated } = await readUpTo(response, signal, MAX_RESPONSE_BYTES);
+  if (truncated) throw new Error(`response exceeds ${MAX_RESPONSE_BYTES} bytes`);
+  if (signal.aborted) throw new Error("aborted");
+  return text;
+}
+
+/**
+ * Read at most `max` bytes of the body, then cancel the rest. Stops early,
+ * without error, when `signal` aborts.
+ */
+async function readUpTo(response: Response, signal: AbortSignal, max: number): Promise<{ text: string; truncated: boolean }> {
+  if (response.body === null) return { text: "", truncated: false };
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let truncated = false;
   const onAbort = (): void => void reader.cancel().catch(() => undefined);
-  signal.addEventListener("abort", onAbort, { once: true });
+  if (signal.aborted) onAbort();
+  else signal.addEventListener("abort", onAbort, { once: true });
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
-      total += value.byteLength;
-      if (total > MAX_RESPONSE_BYTES) {
-        await reader.cancel();
-        throw new Error(`response exceeds ${MAX_RESPONSE_BYTES} bytes`);
+      const room = max - total;
+      if (value.byteLength > room) {
+        chunks.push(value.subarray(0, room));
+        truncated = true;
+        await reader.cancel().catch(() => undefined);
+        break;
       }
       chunks.push(value);
+      total += value.byteLength;
     }
   } finally {
     signal.removeEventListener("abort", onAbort);
   }
-  if (signal.aborted) throw new Error("aborted");
-  return Buffer.concat(chunks).toString("utf8");
+  return { text: Buffer.concat(chunks).toString("utf8"), truncated };
 }
 
-async function safeText(response: Response): Promise<string> {
+/** Up to {@link MAX_ERROR_BODY_BYTES} of a failure body; "" when it cannot be read. */
+async function errorDetail(response: Response, signal: AbortSignal): Promise<string> {
   try {
-    return await response.text();
+    return (await readUpTo(response, signal, MAX_ERROR_BODY_BYTES)).text;
   } catch {
     return "";
   }
