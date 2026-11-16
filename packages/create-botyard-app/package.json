@@ -1,0 +1,26 @@
+{
+  "name": "create-botyard-app",
+  "version": "0.0.1-alpha.0",
+  "description": "Scaffold a Botyard app. Placeholder release; the real CLI is coming.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Botyard-AI/create-botyard-app.git",
+    "directory": "packages/create-botyard-app"
+  },
+  "homepage": "https://github.com/Botyard-AI/create-botyard-app#readme",
+  "bugs": "https://github.com/Botyard-AI/create-botyard-app/issues",
+  "type": "module",
+  "bin": {
+    "create-botyard-app": "bin/create-botyard-app.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}
