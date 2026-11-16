@@ -68,18 +68,23 @@ export async function listTemplates(templatesDir: string): Promise<string[]> {
  *   regular files and directories, no symlinks. No network, no install, no
  *   scripts.
  * - Every file and directory is created exclusively (`O_EXCL`, non-recursive
- *   `mkdir`), so it never overwrites or writes through a symlink, even if
- *   another process writes to the target at the same time. Files are written
- *   once, already named; nothing is rewritten.
+ *   `mkdir`), so it never overwrites an existing file or follows a symlink at
+ *   the path it creates. Files are written once, already named.
  * - Before reporting success it checks, by device and inode, that the target
- *   and every entry it created are still at their paths. Exclusive creation
- *   protects only the last path segment: if another process swaps the target
- *   or a directory in it for a symlink mid-run, files land where it points.
- *   They never overwrite anything there, and the check turns the swap into a
- *   failure instead of a false success.
+ *   and every entry it created are still at their paths.
  * - On failure it removes only what it created, matched by inode: a file
  *   another process put in its place, or anything added to a directory it
  *   created, is left alone. Missing parent directories are left in place.
+ *
+ * Limit (Node has no `openat`): exclusive creation protects only the last
+ * path segment. A concurrent process that can rename directories on the
+ * target's path can send new files elsewhere by swapping an ancestor for a
+ * symlink. Such a swap still never overwrites or deletes anything; a swap
+ * that persists to the end fails the run instead of reporting success; but
+ * after a swap that is reverted before a failure, files written through it
+ * can stay outside the target. That process already holds the user's write
+ * access to those directories, so this is a robustness limit, not a
+ * privilege boundary.
  */
 export async function scaffold(options: ScaffoldOptions): Promise<void> {
   const { templatesDir, template, targetDir, packageName, hooks = {} } = options

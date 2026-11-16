@@ -36,7 +36,10 @@ valid npm package name.
   anything from the network, clone a repository or run a remote script.
 - It does **not** install dependencies or run any of the app's scripts. You
   run `npm install` yourself, after reading what it will install.
-- It never overwrites a file. If it fails part-way, it removes what it wrote.
+- It never overwrites a file. If it fails part-way, it removes what it
+  wrote. Another process renaming directories in the target's path while it
+  runs can make it fail, and in rare cases leave new files where that
+  process pointed; it never overwrites or deletes anything there.
 - The package has no dependencies and no install scripts.
 
 ## License

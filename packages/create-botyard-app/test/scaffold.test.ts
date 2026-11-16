@@ -1,6 +1,6 @@
 // Deterministic interleavings with another process writing to the same target,
 // driven through the scaffolder's hooks.
-import { mkdir, readdir, readFile, rename, symlink, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rename, symlink, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { describe, expect, test } from "vitest"
 import { scaffold, ScaffoldError } from "../src/scaffold.ts"
@@ -131,6 +131,33 @@ describe("swapped ancestors", () => {
       "changed while scaffolding"
     )
     expect(await listFiles(elsewhere)).toEqual([])
+  })
+
+  // The documented limit: a swap that is reverted before a later failure can
+  // leave new files where it pointed. Nothing there is overwritten or deleted,
+  // and the run still fails.
+  test("a transient target swap before a failure leaves new files outside, nothing worse", async () => {
+    const cwd = await tempDir()
+    const targetDir = path.join(cwd, "my-app")
+    const moved = path.join(cwd, "moved")
+    const elsewhere = path.join(cwd, "elsewhere")
+    await mkdir(elsewhere)
+    await writeFile(path.join(elsewhere, "theirs.txt"), "theirs")
+    const meddle = async (file: string): Promise<void> => {
+      if (file.endsWith(".gitignore")) {
+        await rename(targetDir, moved)
+        await symlink(elsewhere, targetDir)
+      } else if (file.endsWith(".npmrc")) {
+        await unlink(targetDir)
+        await rename(moved, targetDir)
+        throw new Error("boom")
+      }
+    }
+    await expect(scaffold({ ...base, targetDir, hooks: { afterCreate: meddle } })).rejects.toThrow(
+      "boom"
+    )
+    expect(await readFile(path.join(elsewhere, "theirs.txt"), "utf8")).toBe("theirs")
+    expect(await listFiles(elsewhere)).toEqual([".npmrc", "theirs.txt"])
   })
 
   test("an existing target swapped after its check is a failure", async () => {
