@@ -8,4 +8,10 @@ importers:
 
   .: {}
 
+  packages/botpage: {}
+
   packages/create-botyard-app: {}
+
+  packages/runtime: {}
+
+  packages/ui: {}
