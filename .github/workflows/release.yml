@@ -108,8 +108,10 @@ jobs:
           # exact Node 24 ships npm 11.19.1, so no npm is installed ad hoc.
           node-version: "24.22.3"
           package-manager-cache: false
+      # The ./ matters: npm reads a bare "dist/x.tgz" as GitHub user/repo
+      # shorthand and tries to git ls-remote github.com/dist/x.tgz.
       - name: Publish
-        run: npm publish dist/*.tgz --access public --provenance --tag "$DIST_TAG"
+        run: npm publish ./dist/*.tgz --access public --provenance --tag "$DIST_TAG"
         env:
           DIST_TAG: ${{ needs.prepare.outputs.dist_tag }}
 
