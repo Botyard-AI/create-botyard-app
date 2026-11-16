@@ -252,4 +252,15 @@ describe("transport selection", () => {
     await assert.rejects(rt.call("o"), OutcomeUnknownError)
     await assert.rejects(rt.call("x"), TransportError)
   })
+
+  test('a fixture tool named "__proto__" survives loading, listing and calling', async () => {
+    const dir = await tempDir()
+    const path = join(dir, "fixtures.json")
+    await writeFile(path, '{"tools": {"__proto__": {"result": "own key"}}}')
+    const loaded = loadMockFixtures(path)
+    assert.ok(Object.hasOwn(loaded.tools ?? {}, "__proto__"))
+    const rt = createRuntime({ transport: createMockTransport(loaded), env: {} })
+    assert.ok((await rt.listTools()).some((tool) => tool.name === "__proto__"))
+    assert.equal(await rt.call("__proto__"), "own key")
+  })
 })

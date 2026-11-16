@@ -177,11 +177,11 @@ function parseIdentity(value: unknown, malformed: Malformed): MockIdentity {
 
 function parseTools(value: unknown, malformed: Malformed): Record<string, MockFixture> {
   if (!isRecord(value)) throw malformed('must give "tools" as an object')
-  const tools: Record<string, MockFixture> = {}
-  for (const [name, fixture] of Object.entries(value)) {
-    tools[name] = parseFixture(name, fixture, malformed)
-  }
-  return tools
+  // fromEntries defines own properties, so a tool named "__proto__" stays a
+  // tool, as JSON.parse left it, instead of hitting the prototype setter.
+  return Object.fromEntries(
+    Object.entries(value).map(([name, fixture]) => [name, parseFixture(name, fixture, malformed)])
+  )
 }
 
 function parseFixture(name: string, value: unknown, malformed: Malformed): MockFixture {
