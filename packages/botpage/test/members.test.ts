@@ -80,3 +80,69 @@ test("rejects with BotPageToolError when there is no data at all", async () => {
   const bad = fakeTools().on("list_org_members", () => ({ nope: true }));
   await assert.rejects(new MemberDirectory(bad).lookup("x"), /no members array/);
 });
+
+test("stale data is served for at most ttlMs + maxStaleMs, then lookups fail closed until recovery", async () => {
+  let now = 0;
+  let fail = false;
+  const tools = fakeTools();
+  const ok = membersHandler();
+  tools.on("list_org_members", (args) => {
+    if (fail) throw new Error("platform down");
+    return ok(args);
+  });
+  const directory = new MemberDirectory(tools, { ttlMs: 1000, retryAfterMs: 100, maxStaleMs: 5000, now: () => now });
+  await directory.lookup("u-jakob");
+  fail = true;
+  now = 5999;
+  assert.equal((await directory.lookup("u-jakob"))?.userId, "u-jakob", "within the stale bound");
+  now = 6000;
+  await assert.rejects(directory.lookup("u-jakob"), BotPageToolError, "past the bound, at a retry");
+  now = 6050;
+  await assert.rejects(directory.lookup("u-jakob"), BotPageToolError, "past the bound, during backoff");
+  fail = false;
+  now = 6100;
+  assert.equal((await directory.lookup("u-jakob"))?.userId, "u-jakob", "recovers after the backoff");
+});
+
+test("maxStaleMs 0 never serves stale data", async () => {
+  let now = 0;
+  let fail = false;
+  const tools = fakeTools();
+  const ok = membersHandler();
+  tools.on("list_org_members", (args) => {
+    if (fail) throw new Error("platform down");
+    return ok(args);
+  });
+  const directory = new MemberDirectory(tools, { ttlMs: 1000, maxStaleMs: 0, now: () => now });
+  await directory.lookup("u-jakob");
+  fail = true;
+  now = 1000;
+  await assert.rejects(directory.lookup("u-jakob"), BotPageToolError);
+});
+
+test("a cold outage backs off: sequential and concurrent lookups share one call per retry interval", async () => {
+  let now = 0;
+  let fail = true;
+  const tools = fakeTools();
+  const ok = membersHandler();
+  tools.on("list_org_members", (args) => {
+    if (fail) throw new Error("platform down");
+    return ok(args);
+  });
+  const directory = new MemberDirectory(tools, { retryAfterMs: 100, now: () => now });
+  for (let i = 0; i < 5; i += 1) {
+    await assert.rejects(directory.lookup("u-jakob"), BotPageToolError);
+  }
+  assert.equal(tools.count("list_org_members"), 1, "sequential requests during backoff");
+  now = 100;
+  const concurrent = await Promise.allSettled(Array.from({ length: 5 }, () => directory.lookup("u-jakob")));
+  assert.ok(concurrent.every((result) => result.status === "rejected"));
+  assert.equal(tools.count("list_org_members"), 2, "concurrent requests after the backoff");
+  fail = false;
+  now = 150;
+  await assert.rejects(directory.lookup("u-jakob"), BotPageToolError, "still backing off");
+  assert.equal(tools.count("list_org_members"), 2);
+  now = 200;
+  assert.equal((await directory.lookup("u-jakob"))?.userId, "u-jakob", "recovers");
+  assert.equal(tools.count("list_org_members"), 3);
+});

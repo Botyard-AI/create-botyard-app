@@ -18,8 +18,20 @@ export interface OrgMember {
 export interface MemberDirectoryOptions {
   /** How long a fetched member list is served before refetching. Default 60 s. */
   ttlMs?: number;
-  /** After a failed refresh, how long stale data is served before retrying. Default 5 s. */
+  /**
+   * After a failed refresh, how long to wait before calling the platform
+   * again. Applies with or without cached data. Default 5 s.
+   */
   retryAfterMs?: number;
+  /**
+   * How long past `ttlMs` a member list may still be served while refreshes
+   * fail. Guards authorize from this list, so it bounds how long a removed or
+   * demoted member keeps access during an outage: at most
+   * `ttlMs + maxStaleMs` after the last successful fetch began. Past it,
+   * lookups fail closed with {@link BotPageToolError} (503 from the
+   * adapters). `0` disables stale serving. Default 5 minutes.
+   */
+  maxStaleMs?: number;
   /** Members fetched per `list_org_members` call (1-100). Default 100. */
   pageSize?: number;
   /** Stop paginating after this many members. Default 10 000. */
@@ -35,7 +47,8 @@ export const LIST_ORG_MEMBERS_TOOL = "list_org_members";
 interface Snapshot {
   readonly byEmail: ReadonlyMap<string, OrgMember>;
   readonly byUserId: ReadonlyMap<string, OrgMember>;
-  readonly expiresAt: number;
+  /** When the fetch that produced this list began. */
+  readonly fetchedAt: number;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -79,22 +92,32 @@ function parsePage(response: unknown): { members: unknown[]; total: number | nul
  * in-flight refresh, so the platform sees one paginated listing per TTL per
  * process however many viewers arrive. Looking up an unknown subject never
  * forces a refetch.
+ *
+ * When a refresh fails, the platform is not called again for `retryAfterMs`,
+ * whether or not a list is cached. Meanwhile the last list is served only
+ * while it is younger than `ttlMs + maxStaleMs`; otherwise lookups reject.
  */
 export class MemberDirectory {
   readonly #tools: ToolCaller;
   readonly #ttlMs: number;
   readonly #retryAfterMs: number;
+  readonly #maxStaleMs: number;
   readonly #pageSize: number;
   readonly #maxMembers: number;
   readonly #timeoutMs: number;
   readonly #now: () => number;
   #snapshot: Snapshot | null = null;
   #inflight: Promise<Snapshot> | null = null;
+  /** No platform call before this instant: the TTL after a success, the backoff after a failure. */
+  #nextFetchAt = Number.NEGATIVE_INFINITY;
+  /** The last refresh failure, while no successful refresh has followed it. */
+  #lastError: BotPageToolError | null = null;
 
   constructor(tools: ToolCaller, options: MemberDirectoryOptions = {}) {
     this.#tools = tools;
     this.#ttlMs = options.ttlMs ?? 60_000;
     this.#retryAfterMs = options.retryAfterMs ?? 5_000;
+    this.#maxStaleMs = options.maxStaleMs ?? 5 * 60_000;
     this.#pageSize = Math.min(100, Math.max(1, options.pageSize ?? 100));
     this.#maxMembers = options.maxMembers ?? 10_000;
     this.#timeoutMs = options.timeoutMs ?? 10_000;
@@ -104,7 +127,7 @@ export class MemberDirectory {
   /**
    * Find a member by email (case-insensitive) or user id. Resolves `null`
    * when the subject is not a member. Rejects with {@link BotPageToolError}
-   * only when there is no member list at all, fresh or stale.
+   * when there is no member list young enough to authorize from.
    */
   async lookup(subject: string): Promise<OrgMember | null> {
     const snapshot = await this.#current();
@@ -116,21 +139,30 @@ export class MemberDirectory {
     return [...(await this.#current()).byUserId.values()];
   }
 
-  /** Drop the cache; the next lookup refetches. */
+  /** Drop the cache and any failure backoff; the next lookup refetches. */
   invalidate(): void {
     this.#snapshot = null;
+    this.#lastError = null;
+    this.#nextFetchAt = Number.NEGATIVE_INFINITY;
   }
 
   async #current(): Promise<Snapshot> {
-    const snapshot = this.#snapshot;
-    if (snapshot !== null && snapshot.expiresAt > this.#now()) return snapshot;
+    if (this.#now() < this.#nextFetchAt) return this.#serve();
     this.#inflight ??= this.#refresh().finally(() => {
       this.#inflight = null;
     });
     return this.#inflight;
   }
 
+  /** The cached list if it is young enough to authorize from, else the last failure. */
+  #serve(): Snapshot {
+    const snapshot = this.#snapshot;
+    if (snapshot !== null && this.#now() < snapshot.fetchedAt + this.#ttlMs + this.#maxStaleMs) return snapshot;
+    throw this.#lastError ?? new BotPageToolError(LIST_ORG_MEMBERS_TOOL, "member list unavailable");
+  }
+
   async #refresh(): Promise<Snapshot> {
+    const startedAt = this.#now();
     try {
       const members = await this.#fetchAll();
       const byEmail = new Map<string, OrgMember>();
@@ -139,20 +171,20 @@ export class MemberDirectory {
         byUserId.set(member.userId, member);
         if (member.email !== null) byEmail.set(member.email.toLowerCase(), member);
       }
-      const fresh = { byEmail, byUserId, expiresAt: this.#now() + this.#ttlMs };
+      const fresh = { byEmail, byUserId, fetchedAt: startedAt };
       this.#snapshot = fresh;
+      this.#lastError = null;
+      this.#nextFetchAt = startedAt + this.#ttlMs;
       return fresh;
     } catch (error) {
-      const stale = this.#snapshot;
-      if (stale !== null) {
-        // Serve stale data rather than locking every viewer out, and back off
-        // so a failing platform is not hammered once per request.
-        const backedOff = { ...stale, expiresAt: this.#now() + this.#retryAfterMs };
-        this.#snapshot = backedOff;
-        return backedOff;
-      }
-      if (error instanceof BotPageToolError) throw error;
-      throw new BotPageToolError(LIST_ORG_MEMBERS_TOOL, "call failed", { cause: error });
+      // Back off whether or not a list is cached, so a failing platform sees
+      // one call per retry interval per process, not one per request.
+      this.#lastError =
+        error instanceof BotPageToolError
+          ? error
+          : new BotPageToolError(LIST_ORG_MEMBERS_TOOL, "call failed", { cause: error });
+      this.#nextFetchAt = this.#now() + this.#retryAfterMs;
+      return this.#serve();
     }
   }
 

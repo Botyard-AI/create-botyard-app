@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BotPageAuthError, BotPageConfigError, createBotPage, type IdentitySource } from "../src/index.ts";
+import { BotPageAuthError, BotPageConfigError, BotPageToolError, createBotPage, type IdentitySource } from "../src/index.ts";
 import { captureLogger, fakeTools, nodeReq } from "./fakes.ts";
 
 const env = { NODE_ENV: "development" };
@@ -144,4 +144,39 @@ test("a Unix socket bind counts as local", async () => {
   botpage.noteBind("/tmp/app.sock");
   assert.equal(logger.warnings.length, 0);
   assert.equal((await botpage.viewer(new Request("http://x/")))?.subject, "u-jakob");
+});
+
+test("guards stop authorizing from a stale list: removal and demotion take effect after an outage", async () => {
+  let now = 0;
+  let members: unknown[] = [
+    { user_id: "u-jakob", role_id: "owner", user: { email: "jakob@botyard.io", name: "Jakob" } },
+    { user_id: "u-vera", role_id: "member", user: { email: "vera@botyard.io", name: "Vera" } },
+  ];
+  let down = false;
+  const tools = fakeTools().on("list_org_members", () => {
+    if (down) throw new Error("platform down");
+    return { total: members.length, members };
+  });
+  const botpage = createBotPage({
+    tools,
+    env,
+    members: { ttlMs: 60_000, maxStaleMs: 300_000, retryAfterMs: 5_000, now: () => now },
+  });
+  const jakob = nodeReq({ "x-forwarded-user": "jakob@botyard.io" });
+  const vera = nodeReq({ "x-forwarded-user": "vera@botyard.io" });
+  assert.equal((await botpage.requireMember(jakob, { roles: ["owner"] })).role, "owner");
+  assert.equal((await botpage.requireMember(vera)).userId, "u-vera");
+
+  // Jakob is demoted and Vera removed, then the directory goes down.
+  members = [{ user_id: "u-jakob", role_id: "viewer", user: { email: "jakob@botyard.io", name: "Jakob" } }];
+  down = true;
+  now = 24 * 60 * 60_000;
+  await assert.rejects(botpage.requireMember(jakob, { roles: ["owner"] }), BotPageToolError);
+  await assert.rejects(botpage.requireMember(vera), BotPageToolError);
+  await assert.rejects(botpage.viewer(vera), BotPageToolError);
+
+  down = false;
+  now += 5_000;
+  await assert.rejects(botpage.requireMember(jakob, { roles: ["owner"] }), { status: 403, code: "role_not_allowed" });
+  await assert.rejects(botpage.requireMember(vera), { status: 403, code: "not_a_member" });
 });
