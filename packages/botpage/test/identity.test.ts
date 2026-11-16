@@ -70,7 +70,7 @@ test("trustedForwardedUser refuses a non-loopback peer unless told otherwise", a
   )
   const refused = await trustedForwardedUser().identify(req)
   assert.equal(refused.ok, false)
-  assert.equal(!refused.ok && refused.reason, "untrusted_peer")
+  assert.equal(refused.reason, "untrusted_peer")
   const allowed = await trustedForwardedUser({ requireLoopbackPeer: false }).identify(req)
   assert.equal(allowed.ok, true)
 })

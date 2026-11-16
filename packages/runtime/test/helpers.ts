@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { onTestFinished } from "vitest"
 
+import { isRecord } from "../src/internal.ts"
+
 export async function tempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "botyard-runtime-test-"))
   onTestFinished(() => rm(dir, { recursive: true, force: true }))
@@ -48,10 +50,7 @@ process.stdin.on("end", () => {
     invocations: async () => {
       try {
         const text = await readFile(log, "utf8")
-        return text
-          .split("\n")
-          .filter(Boolean)
-          .map((line) => JSON.parse(line) as { argv: string[]; stdin: string })
+        return text.split("\n").filter(Boolean).map(invocation)
       } catch {
         return []
       }
@@ -66,20 +65,42 @@ export const TOOLS_LIST = JSON.stringify([
 
 /** A scripted `fetch` that records requests and answers from a queue. */
 export function scriptedFetch(
-  answers: Array<(body: Record<string, unknown>) => Response | Promise<Response>>
+  answers: ((body: Record<string, unknown>) => Response | Promise<Response>)[]
 ): {
   fetch: typeof fetch
   requests: Record<string, unknown>[]
 } {
   const requests: Record<string, unknown>[] = []
   const impl = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+    const body = requestBody(init)
     requests.push(body)
     const answer = answers.shift()
     if (answer === undefined) throw new Error("scriptedFetch: no answer queued")
     return answer(body)
   }
-  return { fetch: impl as typeof fetch, requests }
+  return { fetch: impl, requests }
+}
+
+/** The JSON-RPC request a transport sent, as an object. */
+export function requestBody(init: RequestInit | undefined): Record<string, unknown> {
+  const body: unknown = JSON.parse(String(init?.body))
+  if (!isRecord(body)) throw new Error("the request body is not a JSON object")
+  return body
+}
+
+/** One line of the fake daemon's invocation log. */
+function invocation(line: string): { argv: string[]; stdin: string } {
+  const entry: unknown = JSON.parse(line)
+  if (!isRecord(entry)) throw new Error(`bad invocation line: ${line}`)
+  const { argv, stdin } = entry
+  if (
+    !Array.isArray(argv) ||
+    !argv.every((a) => typeof a === "string") ||
+    typeof stdin !== "string"
+  ) {
+    throw new Error(`bad invocation line: ${line}`)
+  }
+  return { argv, stdin }
 }
 
 export function sse(message: unknown): Response {

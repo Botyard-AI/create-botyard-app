@@ -17,8 +17,15 @@ async function listeningSocket(): Promise<string> {
   const dir = await tempDir()
   const path = join(dir, "daemon.sock")
   const server = createServer()
-  await new Promise<void>((resolve) => server.listen(path, resolve))
-  onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())))
+  await new Promise<void>((resolve) => {
+    server.listen(path, resolve)
+  })
+  onTestFinished(
+    () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve())
+      })
+  )
   return path
 }
 

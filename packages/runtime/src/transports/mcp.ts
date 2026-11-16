@@ -19,7 +19,7 @@ import {
   TransportError,
   type BotyardErrorOptions,
 } from "../errors.ts"
-import { bounded, deadline, describeEnd, isRecord } from "../internal.ts"
+import { bounded, deadline, describeEnd, isRecord, type Deadline } from "../internal.ts"
 import type { RequestOptions, ToolDescriptor, ToolResult, Transport } from "../types.ts"
 
 /** Default proxy port, as the bridge and the provisioner define it. */
@@ -65,6 +65,40 @@ export function createMcpTransport(options: McpTransportOptions): Transport {
   }
   const fetchImpl = options.fetch ?? fetch
 
+  /** POST one JSON-RPC request. Fails with nothing sent, or ambiguously. */
+  async function post(
+    request: Record<string, unknown>,
+    d: Deadline,
+    where: BotyardErrorOptions,
+    ambiguous: Ambiguous
+  ): Promise<Response> {
+    try {
+      return await fetchImpl(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify(request),
+        redirect: "error",
+        signal: d.signal,
+      })
+    } catch (err) {
+      if (d.signal.aborted) throw ambiguous(describeEnd(d), err)
+      const code = socketCode(err)
+      if (code !== undefined && NOT_CONNECTED.has(code)) {
+        throw new TransportError(`cannot reach the Botyard MCP proxy at ${url.origin} (${code})`, {
+          ...where,
+          cause: err,
+        })
+      }
+      throw ambiguous(
+        `the connection to the Botyard MCP proxy failed (${code ?? "network error"})`,
+        err
+      )
+    }
+  }
+
   /**
    * One JSON-RPC round trip. `mutating` decides how an ambiguous failure is
    * reported: a `tools/call` that may have been delivered is outcome-unknown;
@@ -77,92 +111,18 @@ export function createMcpTransport(options: McpTransportOptions): Transport {
     tool: string | undefined
   ): Promise<unknown> {
     const where: BotyardErrorOptions = { tool, transport: "mcp" }
-    const mutating = method === "tools/call"
-    const ambiguous = (message: string, cause?: unknown): Error =>
-      mutating
-        ? new OutcomeUnknownError(
-            `${message}; the tool may have run. Do not retry automatically.`,
-            { ...where, cause }
-          )
-        : new TransportError(message, { ...where, cause })
+    const ambiguous = ambiguity(method === "tools/call", where)
 
     if (opts.signal?.aborted) {
       throw new TransportError("the call was aborted before it started", where)
     }
-    const id = nextId++
+    const id = nextId
+    nextId += 1
     const d = deadline(opts.timeoutMs, opts.signal)
     try {
-      let response: Response
-      try {
-        response = await fetchImpl(url, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            accept: "application/json, text/event-stream",
-          },
-          body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
-          redirect: "error",
-          signal: d.signal,
-        })
-      } catch (err) {
-        if (d.signal.aborted) throw ambiguous(describeEnd(d), err)
-        const code = socketCode(err)
-        if (code !== undefined && NOT_CONNECTED.has(code)) {
-          throw new TransportError(
-            `cannot reach the Botyard MCP proxy at ${url.origin} (${code})`,
-            { ...where, cause: err }
-          )
-        }
-        throw ambiguous(
-          `the connection to the Botyard MCP proxy failed (${code ?? "network error"})`,
-          err
-        )
-      }
-
-      if (!response.ok) {
-        // The status alone classifies the failure; the body is a bounded,
-        // best-effort detail that can never stall or exhaust memory.
-        const detail = bounded((await errorDetail(response, d.signal)).trim(), 300)
-        // 4xx: the proxy or botyard-mcp refused the request (route, method,
-        // auth, headers) before any tool ran. 5xx: the bridge answers 502 for
-        // both "could not authenticate" and "upstream failed mid-request", so
-        // it cannot prove the tool did not run.
-        const message = `the Botyard MCP proxy answered HTTP ${response.status}${detail ? `: ${detail}` : ""}`
-        if (response.status >= 400 && response.status < 500)
-          throw new TransportError(message, where)
-        throw ambiguous(message)
-      }
-
-      let message: unknown
-      try {
-        message = await readRpcResponse(response, id, d.signal)
-      } catch (err) {
-        if (d.signal.aborted) throw ambiguous(`${describeEnd(d)} while reading the response`, err)
-        throw ambiguous(
-          `unreadable response from the Botyard MCP proxy: ${err instanceof Error ? err.message : String(err)}`,
-          err
-        )
-      }
-      if (!isRecord(message)) throw ambiguous("the Botyard MCP proxy sent no JSON-RPC response")
-
-      const error = message["error"]
-      if (isRecord(error)) {
-        const code = typeof error["code"] === "number" ? error["code"] : undefined
-        const text = bounded(typeof error["message"] === "string" ? error["message"] : "no message")
-        if (code === RPC_INVALID_PARAMS)
-          throw new InvalidInputError(`invalid input: ${text}`, where)
-        if (
-          code === RPC_PARSE_ERROR ||
-          code === RPC_INVALID_REQUEST ||
-          code === RPC_METHOD_NOT_FOUND
-        ) {
-          throw new TransportError(`botyard-mcp rejected the request (${code}): ${text}`, where)
-        }
-        throw ambiguous(`botyard-mcp answered with JSON-RPC error ${code ?? "(no code)"}: ${text}`)
-      }
-      if (!("result" in message))
-        throw ambiguous("the JSON-RPC response has neither result nor error")
-      return message["result"]
+      const response = await post({ jsonrpc: "2.0", id, method, params }, d, where, ambiguous)
+      if (!response.ok) throw await httpFailure(response, d.signal, where, ambiguous)
+      return rpcResult(await readMessage(response, id, d, ambiguous), where, ambiguous)
     } finally {
       d.dispose()
     }
@@ -220,6 +180,80 @@ export function createMcpTransport(options: McpTransportOptions): Transport {
       } satisfies ToolResult
     },
   }
+}
+
+/** Builds the error for a failure that may have happened after delivery. */
+type Ambiguous = (message: string, cause?: unknown) => Error
+
+function ambiguity(mutating: boolean, where: BotyardErrorOptions): Ambiguous {
+  return (message, cause) =>
+    mutating
+      ? new OutcomeUnknownError(`${message}; the tool may have run. Do not retry automatically.`, {
+          ...where,
+          cause,
+        })
+      : new TransportError(message, { ...where, cause })
+}
+
+/** The error for a non-2xx response. */
+async function httpFailure(
+  response: Response,
+  signal: AbortSignal,
+  where: BotyardErrorOptions,
+  ambiguous: Ambiguous
+): Promise<Error> {
+  // The status alone classifies the failure; the body is a bounded,
+  // best-effort detail that can never stall or exhaust memory.
+  const detail = bounded((await errorDetail(response, signal)).trim(), 300)
+  // 4xx: the proxy or botyard-mcp refused the request (route, method,
+  // auth, headers) before any tool ran. 5xx: the bridge answers 502 for
+  // both "could not authenticate" and "upstream failed mid-request", so
+  // it cannot prove the tool did not run.
+  const suffix = detail ? `: ${detail}` : ""
+  const message = `the Botyard MCP proxy answered HTTP ${response.status}${suffix}`
+  if (response.status >= 400 && response.status < 500) return new TransportError(message, where)
+  return ambiguous(message)
+}
+
+/** The JSON-RPC response object for `id`. */
+async function readMessage(
+  response: Response,
+  id: number,
+  d: Deadline,
+  ambiguous: Ambiguous
+): Promise<Record<string, unknown>> {
+  let message: unknown
+  try {
+    message = await readRpcResponse(response, id, d.signal)
+  } catch (err) {
+    if (d.signal.aborted) throw ambiguous(`${describeEnd(d)} while reading the response`, err)
+    throw ambiguous(
+      `unreadable response from the Botyard MCP proxy: ${err instanceof Error ? err.message : String(err)}`,
+      err
+    )
+  }
+  if (!isRecord(message)) throw ambiguous("the Botyard MCP proxy sent no JSON-RPC response")
+  return message
+}
+
+/** The `result` of a JSON-RPC response, or the error its `error` maps to. */
+function rpcResult(
+  message: Record<string, unknown>,
+  where: BotyardErrorOptions,
+  ambiguous: Ambiguous
+): unknown {
+  const error = message["error"]
+  if (isRecord(error)) {
+    const code = typeof error["code"] === "number" ? error["code"] : undefined
+    const text = bounded(typeof error["message"] === "string" ? error["message"] : "no message")
+    if (code === RPC_INVALID_PARAMS) throw new InvalidInputError(`invalid input: ${text}`, where)
+    if (code === RPC_PARSE_ERROR || code === RPC_INVALID_REQUEST || code === RPC_METHOD_NOT_FOUND) {
+      throw new TransportError(`botyard-mcp rejected the request (${code}): ${text}`, where)
+    }
+    throw ambiguous(`botyard-mcp answered with JSON-RPC error ${code ?? "(no code)"}: ${text}`)
+  }
+  if (!("result" in message)) throw ambiguous("the JSON-RPC response has neither result nor error")
+  return message["result"]
 }
 
 /**
@@ -283,8 +317,11 @@ async function readUpTo(
   else signal.addEventListener("abort", onAbort, { once: true })
   try {
     for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
+      const read = await reader.read()
+      if (read.done) break
+      // Node types a fetch body as ReadableStream<any>; its chunks are bytes.
+      const value: unknown = read.value
+      if (!(value instanceof Uint8Array)) throw new TypeError("the response body is not bytes")
       const room = max - total
       if (value.byteLength > room) {
         chunks.push(value.subarray(0, room))

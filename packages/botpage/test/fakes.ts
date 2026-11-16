@@ -30,6 +30,9 @@ export class FakeTools implements ToolCaller {
     this.calls.push({ tool, args, opts })
     const handler = this.handlers.get(tool)
     if (handler === undefined) throw new Error(`unexpected tool ${tool}`)
+    // ToolCaller.call<T> is the published API: T is the caller's claim about an
+    // untyped tool result, so a fake has to make the same claim.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     return (await handler(args)) as T
   }
 }

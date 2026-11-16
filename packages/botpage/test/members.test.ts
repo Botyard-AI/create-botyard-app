@@ -190,7 +190,9 @@ test("a fetch slower than the staleness bound fails closed, backs off, then reco
 
   // Completes just inside the bound: served.
   let pending = directory.lookup("u-jakob")
-  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => {
+    setImmediate(resolve)
+  })
   now = 1999
   ;(release as (() => void) | null)?.()
   assert.equal((await pending)?.userId, "u-jakob")
@@ -199,7 +201,9 @@ test("a fetch slower than the staleness bound fails closed, backs off, then reco
   directory.invalidate()
   now = 10_000
   pending = directory.lookup("u-jakob")
-  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => {
+    setImmediate(resolve)
+  })
   now = 12_000
   ;(release as (() => void) | null)?.()
   await assert.rejects(pending, BotPageToolError)

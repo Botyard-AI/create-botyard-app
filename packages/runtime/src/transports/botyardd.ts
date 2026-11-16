@@ -195,6 +195,7 @@ export function createBotyarddTransport(options: BotyarddTransportOptions = {}):
             )
           }
           throw new TransportError(`botyardd failed before the tool ran: ${detail}`, where(name))
+        case null: // killed by a signal we did not send
         default:
           // Killed by a signal we did not send, or an exit code this version
           // does not know. Nothing proves the tool did not run.

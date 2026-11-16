@@ -23,12 +23,31 @@ export interface ViewerMiddlewareOptions extends RequireMemberOptions {
   require?: "member"
 }
 
-interface NodeBindings {
-  incoming?: { socket?: { localAddress?: string; remoteAddress?: string } }
+/**
+ * The socket @hono/node-server puts in `c.env.incoming`. Other runtimes pass
+ * their own bindings, so read it defensively.
+ */
+function nodeSocket(
+  env: unknown
+): { localAddress: string | undefined; remoteAddress: string | undefined } | undefined {
+  if (typeof env !== "object" || env === null || !("incoming" in env)) return undefined
+  const { incoming } = env
+  if (typeof incoming !== "object" || incoming === null || !("socket" in incoming)) return undefined
+  const { socket } = incoming
+  if (typeof socket !== "object" || socket === null) return undefined
+  const localAddress =
+    "localAddress" in socket && typeof socket.localAddress === "string"
+      ? socket.localAddress
+      : undefined
+  const remoteAddress =
+    "remoteAddress" in socket && typeof socket.remoteAddress === "string"
+      ? socket.remoteAddress
+      : undefined
+  return { localAddress, remoteAddress }
 }
 
 function requestLike(raw: Request, env: unknown): RequestLike {
-  const socket = (env as NodeBindings | undefined)?.incoming?.socket
+  const socket = nodeSocket(env)
   return socket === undefined
     ? { headers: raw.headers }
     : {

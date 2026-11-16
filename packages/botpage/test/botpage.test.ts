@@ -64,7 +64,7 @@ test("a dev viewer can be a bot shadow address", async () => {
   })
   const viewer = await botpage.viewer(nodeReq({}))
   assert.equal(viewer?.kind, "bot")
-  assert.equal(viewer?.kind === "bot" && viewer.botId, "b2")
+  assert.equal(viewer.botId, "b2")
 })
 
 test("requireMember: 401 without a viewer, 403 for non-members and wrong roles", async () => {
@@ -156,7 +156,7 @@ test("dev viewer override applies on loopback when no identity is present", asyn
   })
   const viewer = await botpage.viewer(nodeReq({}))
   assert.equal(viewer?.kind, "member")
-  assert.equal(viewer?.source, "dev-viewer")
+  assert.equal(viewer.source, "dev-viewer")
   const real = await botpage.viewer(nodeReq({ "x-forwarded-user": "vera@botyard.io" }))
   assert.equal(real?.subject, "vera@botyard.io", "a real header wins over the override")
   const malformed = await botpage.viewer(nodeReq({ "x-forwarded-user": ["a@x.io", "b@x.io"] }))
@@ -271,7 +271,9 @@ test("an owner read on an early page does not pass the guard when the listing ou
   const jakob = nodeReq({ "x-forwarded-user": "jakob@botyard.io" })
 
   const guard = botpage.requireMember(jakob, { roles: ["owner"] })
-  await new Promise((resolve) => setImmediate(resolve))
+  await new Promise((resolve) => {
+    setImmediate(resolve)
+  })
   // Page 1 (owner) is in; Jakob is demoted while page 2 hangs past the bound.
   members = [
     { user_id: "u-jakob", role_id: "viewer", user: { email: "jakob@botyard.io" } },

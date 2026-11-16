@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { createServer, type Server } from "node:http"
+import { createServer } from "node:http"
 import { afterAll, test } from "vitest"
 
 import { serve } from "@hono/node-server"
@@ -12,10 +12,16 @@ import { guardListen, listenLoopback, requireMember, withViewer } from "../src/n
 import { captureLogger, fakeTools } from "./fakes.ts"
 
 const env = { NODE_ENV: "test" }
-const servers: Server[] = []
+// Anything the tests start: node:http servers and @hono/node-server's ServerType.
+const servers: { close(): unknown }[] = []
 afterAll(() => {
   for (const server of servers) server.close()
 })
+
+/** The `error` field of a JSON error body, if it has one. */
+function errorOf(body: unknown): unknown {
+  return typeof body === "object" && body !== null && "error" in body ? body.error : undefined
+}
 
 async function get(
   port: number,
@@ -57,7 +63,7 @@ test("node: withViewer passes null, and directory outages are 503", async () => 
   assert.deepEqual(await get(port), { status: 200, body: { viewer: null } })
   const outage = await get(port, { "x-forwarded-user": "jakob@botyard.io" })
   assert.equal(outage.status, 503)
-  assert.deepEqual((outage.body as { error: string }).error, "directory_unavailable")
+  assert.deepEqual(errorOf(outage.body), "directory_unavailable")
 })
 
 test("node: listenLoopback refuses non-loopback hosts before binding", async () => {
@@ -72,7 +78,9 @@ test("node: guardListen warns on a wildcard bind", async () => {
   const server = createServer()
   servers.push(server)
   guardListen(server, { botpage })
-  await new Promise<void>((resolve) => server.listen(0, "0.0.0.0", resolve))
+  await new Promise<void>((resolve) => {
+    server.listen(0, "0.0.0.0", resolve)
+  })
   assert.match(logger.warnings.join("\n"), /bound to 0\.0\.0\.0, not loopback/)
 })
 
@@ -96,7 +104,7 @@ test("hono: viewerMiddleware sets the viewer and guards members", async () => {
     headers: { "x-forwarded-user": "vera@botyard.io" },
   })
   assert.equal(viewerRole.status, 403)
-  assert.deepEqual((await viewerRole.json()).error, "role_not_allowed")
+  assert.deepEqual(errorOf(await viewerRole.json()), "role_not_allowed")
   const none = await app.request("/members/me")
   assert.equal(none.status, 401)
   assert.equal(none.headers.get("cache-control"), "no-store")
@@ -110,7 +118,7 @@ test("hono on node-server: the socket feeds the peer check and dev override", as
   const port = await new Promise<number>((resolve) => {
     const server = serve({ fetch: app.fetch, port: 0, hostname: "127.0.0.1" }, (info) =>
       resolve(info.port)
-    ) as Server
+    )
     servers.push(server)
   })
   assert.deepEqual(await get(port), { status: 200, body: { subject: "u-vera" } })

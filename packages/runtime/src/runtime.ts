@@ -95,30 +95,16 @@ export function selectTransport(options: RuntimeOptions = {}): Selected {
   if (typeof forced === "object")
     return { transport: forced, reason: "transport passed in options" }
   if (forced !== undefined) {
-    if (!(TRANSPORT_KINDS as readonly string[]).includes(forced)) {
+    if (!isTransportKind(forced)) {
       throw new TransportError(
         `${ENV.TRANSPORT} must be one of ${TRANSPORT_KINDS.join(", ")}, not "${forced}"`
       )
     }
-    const kind = forced as TransportKind
     const reason =
       options.transport === undefined
-        ? `${ENV.TRANSPORT}=${kind}`
-        : `transport: "${kind}" in options`
-    switch (kind) {
-      case "botyardd":
-        return { transport: botyardd(options, env), reason }
-      case "mcp":
-        return {
-          transport: mcp(options, mcpUrl(options, env) ?? loopback(DEFAULT_MCP_PROXY_PORT)),
-          reason,
-        }
-      case "mock": {
-        const fixtures = nonEmpty(env[ENV.MOCK_FIXTURES])
-        const mock = options.mock ?? (fixtures === undefined ? {} : loadMockFixtures(fixtures))
-        return { transport: createMockTransport(mock), reason }
-      }
-    }
+        ? `${ENV.TRANSPORT}=${forced}`
+        : `transport: "${forced}" in options`
+    return { transport: forcedTransport(forced, options, env), reason }
   }
 
   const checked: string[] = []
@@ -137,6 +123,28 @@ export function selectTransport(options: RuntimeOptions = {}): Selected {
     `no Botyard transport found: ${checked.join("; ")}. ` +
       `Run inside a Botyard bot, or set ${ENV.TRANSPORT}=mock for tests and local development.`
   )
+}
+
+function isTransportKind(value: string): value is TransportKind {
+  return TRANSPORT_KINDS.some((kind) => kind === value)
+}
+
+function forcedTransport(
+  kind: TransportKind,
+  options: RuntimeOptions,
+  env: NodeJS.ProcessEnv
+): Transport {
+  switch (kind) {
+    case "botyardd":
+      return botyardd(options, env)
+    case "mcp":
+      return mcp(options, mcpUrl(options, env) ?? loopback(DEFAULT_MCP_PROXY_PORT))
+    case "mock": {
+      const fixtures = nonEmpty(env[ENV.MOCK_FIXTURES])
+      const mock = options.mock ?? (fixtures === undefined ? {} : loadMockFixtures(fixtures))
+      return createMockTransport(mock)
+    }
+  }
 }
 
 function botyardd(options: RuntimeOptions, env: NodeJS.ProcessEnv): Transport {
@@ -293,14 +301,21 @@ export function createRuntime(options: RuntimeOptions = {}): Runtime {
         transport: transport.kind,
       })
     }
-    let serialised: Record<string, unknown>
+    let serialised: unknown
     try {
-      serialised = JSON.parse(JSON.stringify(args)) as Record<string, unknown>
+      serialised = JSON.parse(JSON.stringify(args))
     } catch (err) {
       throw new InvalidInputError("args are not JSON-serialisable", {
         tool,
         transport: transport.kind,
         cause: err,
+      })
+    }
+    // A plain object can still serialise to something else through toJSON().
+    if (!isRecord(serialised)) {
+      throw new InvalidInputError("args must serialise to a JSON object", {
+        tool,
+        transport: transport.kind,
       })
     }
     const started = Date.now()
@@ -331,6 +346,10 @@ export function createRuntime(options: RuntimeOptions = {}): Runtime {
       )
     }
     if (result.isError) throw toolFailure(result, tool, transport.kind)
+    // `call<T>` is the published 0.1.0 API: T is the caller's claim about a tool
+    // result that crossed the wire untyped, and the default is `unknown`. Removing
+    // the parameter is a breaking change, tracked for the next minor.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     return unwrap(result, found) as T
   }
 
@@ -342,9 +361,10 @@ export function createRuntime(options: RuntimeOptions = {}): Runtime {
     } catch (err) {
       if (!(err instanceof UnknownToolError)) throw err
     }
+    const id = isRecord(value) ? value["id"] : undefined
     identity =
-      isRecord(value) && typeof value["id"] === "string"
-        ? fromTool(value, transport.kind)
+      isRecord(value) && typeof id === "string"
+        ? fromTool(value, id, transport.kind)
         : fromEnv(env, transport.kind)
     return identity
   }
@@ -446,9 +466,9 @@ function str(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined
 }
 
-function fromTool(value: Record<string, unknown>, transport: TransportKind): Identity {
+function fromTool(value: Record<string, unknown>, id: string, transport: TransportKind): Identity {
   return {
-    bot: { id: value["id"] as string, slug: str(value["slug"]), name: str(value["name"]) },
+    bot: { id, slug: str(value["slug"]), name: str(value["name"]) },
     org: { id: str(value["org_id"]), slug: str(value["org_slug"]) },
     transport,
   }

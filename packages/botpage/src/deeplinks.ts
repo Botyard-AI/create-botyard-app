@@ -77,6 +77,13 @@ const ORG_PARAM = "orgSlug"
 const LITERAL_SEGMENT = /^[A-Za-z0-9._~-]+$/
 const PARAM_NAME = /^[A-Za-z][A-Za-z0-9_]*$/
 
+/** Array.prototype.sort's default order (UTF-16 code units), made explicit. */
+function byCodeUnit(a: string, b: string): number {
+  if (a < b) return -1
+  if (a > b) return 1
+  return 0
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
@@ -104,7 +111,7 @@ function parseSearch(raw: unknown): NavigationSearchParam[] | null {
   }
   if (isRecord(raw)) {
     const params: NavigationSearchParam[] = []
-    for (const name of Object.keys(raw).sort()) {
+    for (const name of Object.keys(raw).sort(byCodeUnit)) {
       const value = raw[name]
       if (typeof value !== "string") return null
       params.push({ name, value })
@@ -148,6 +155,8 @@ function isUnsafeSegment(value: string): boolean {
 }
 
 function isPrintable(value: string): boolean {
+  // Matching control characters is the point: they are what this rejects.
+  // eslint-disable-next-line no-control-regex
   return value.trim().length > 0 && !/[\u0000-\u001f\u007f-\u009f]/u.test(value)
 }
 
@@ -172,12 +181,12 @@ export function buildDeeplink(
   }
   const required = new Set(destination.requiredParams)
   const given = Object.keys(params)
-  const missing = [...required].filter((name) => !(name in params)).sort()
-  const unexpected = given.filter((name) => !required.has(name)).sort()
+  const missing = [...required].filter((name) => !(name in params)).sort(byCodeUnit)
+  const unexpected = given.filter((name) => !required.has(name)).sort(byCodeUnit)
   if (missing.length > 0 || unexpected.length > 0) {
     throw new DeeplinkParamsError(
       key,
-      `"${key}" expects params [${[...required].sort().join(", ")}]; ` +
+      `"${key}" expects params [${[...required].sort(byCodeUnit).join(", ")}]; ` +
         `missing [${missing.join(", ")}], unexpected [${unexpected.join(", ")}].`
     )
   }
@@ -275,7 +284,8 @@ export class Deeplinks {
     string,
     { destination: NavigationDestination | null; expiresAt: number }
   >()
-  #orgSlug: Promise<string> | null
+  readonly #configuredOrgSlug: string | undefined
+  #orgSlug: Promise<string> | null = null
 
   constructor(tools: ToolCaller, options: DeeplinksOptions = {}) {
     this.#tools = tools
@@ -283,7 +293,7 @@ export class Deeplinks {
     this.#ttlMs = options.ttlMs ?? 10 * 60_000
     this.#timeoutMs = options.timeoutMs ?? 10_000
     this.#now = options.now ?? Date.now
-    this.#orgSlug = options.orgSlug === undefined ? null : Promise.resolve(options.orgSlug)
+    this.#configuredOrgSlug = options.orgSlug
   }
 
   /** The directory entry for `key`, or `null` if there is none. */
@@ -331,6 +341,7 @@ export class Deeplinks {
   }
 
   #resolveOrgSlug(): Promise<string> {
+    if (this.#configuredOrgSlug !== undefined) return Promise.resolve(this.#configuredOrgSlug)
     this.#orgSlug ??= this.#fetchOrgSlug().catch((error: unknown) => {
       this.#orgSlug = null
       throw error

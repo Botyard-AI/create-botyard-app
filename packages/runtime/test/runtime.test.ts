@@ -61,7 +61,13 @@ describe("name resolution", () => {
   test("an unknown tool is UnknownToolError, without refetching a list it just fetched", async () => {
     let lists = 0
     const inner = createMockTransport({ tools: { a: { result: 1 } } })
-    const counting: Transport = { ...inner, listTools: (o) => (lists++, inner.listTools(o)) }
+    const counting: Transport = {
+      ...inner,
+      listTools: (o) => {
+        lists++
+        return inner.listTools(o)
+      },
+    }
     const rt = createRuntime({ transport: counting, env: {} })
     await assert.rejects(rt.call("missing"), UnknownToolError)
     // The first miss happens right after the first fetch, so no refresh yet.
@@ -86,11 +92,23 @@ describe("name resolution", () => {
     assert.equal(await rt.call("b"), "b")
   })
 
+  test("args whose toJSON() is not an object are rejected before any call", async () => {
+    const mock = createMockTransport({ tools: { a: { result: 1 } } })
+    const rt = createRuntime({ transport: mock, env: {} })
+    await assert.rejects(
+      rt.call("a", { toJSON: () => "not an object" }),
+      /args must serialise to a JSON object/
+    )
+    assert.equal(mock.calls.length, 0)
+  })
+
   test("rejects a blank or spaced tool name and non-object args", async () => {
     const rt = createRuntime({ transport: "mock", env: {} })
     await assert.rejects(rt.call(""), InvalidInputError)
     await assert.rejects(rt.call("get identity"), InvalidInputError)
     await assert.rejects(
+      // What a JavaScript caller can pass; the type escape is the point of the test.
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       rt.call("get_identity", [] as unknown as Record<string, unknown>),
       InvalidInputError
     )

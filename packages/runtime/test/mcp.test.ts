@@ -9,7 +9,15 @@ import {
   TransportError,
   UnknownToolError,
 } from "../src/index.ts"
-import { callResult, connectionError, json, scriptedFetch, sse, toolsList } from "./helpers.ts"
+import {
+  callResult,
+  connectionError,
+  json,
+  requestBody,
+  scriptedFetch,
+  sse,
+  toolsList,
+} from "./helpers.ts"
 
 const NAMES = ["list_org_members", "create_task"]
 
@@ -36,17 +44,17 @@ describe("mcp transport", () => {
       transport: "mcp",
       mcpUrl: "http://127.0.0.1:9092/mcp",
       env: {},
-      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+      fetch: async (input: string | URL | Request, init?: RequestInit) => {
         headers = new Headers(init?.headers)
         return scripted.fetch(input, init)
-      }) as typeof fetch,
+      },
     })
     assert.deepEqual(await rt.call("list_org_members", { q: 1 }), { total: 1 })
     const call = scripted.requests[1]
     assert.equal(call?.["method"], "tools/call")
-    assert.deepEqual(call?.["params"], { name: "list_org_members", arguments: { q: 1 } })
+    assert.deepEqual(call["params"], { name: "list_org_members", arguments: { q: 1 } })
     assert.equal(headers?.get("authorization"), null)
-    assert.match(headers?.get("accept") ?? "", /text\/event-stream/)
+    assert.match(headers.get("accept") ?? "", /text\/event-stream/)
   })
 
   test("reads a plain JSON answer too", async () => {
@@ -172,14 +180,14 @@ describe("mcp transport", () => {
       mcpUrl: "http://127.0.0.1:9092/mcp",
       env: {},
       // Lists normally; never answers a call, but honours the abort signal.
-      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
-        const body = JSON.parse(String(init?.body)) as Record<string, unknown>
+      fetch: async (input: string | URL | Request, init?: RequestInit) => {
+        const body = requestBody(init)
         if (body["method"] === "tools/list") return scripted.fetch(input, init)
         sent++
         return new Promise<Response>((_, reject) => {
           init?.signal?.addEventListener("abort", () => reject(init.signal?.reason))
         })
-      }) as typeof fetch,
+      },
     })
     await assert.rejects(rt.call("create_task", {}, { timeoutMs: 100 }), (err: unknown) => {
       return err instanceof OutcomeUnknownError && /deadline passed/.test(err.message)
@@ -203,7 +211,7 @@ describe("mcp transport", () => {
   /** A body that sends nothing and never ends. */
   function stalledBody(status: number): Response {
     return new Response(
-      new ReadableStream<Uint8Array>({ pull: () => new Promise<void>(() => undefined) }),
+      new ReadableStream<Uint8Array>({ pull: () => new Promise<void>(() => {}) }),
       { status }
     )
   }
@@ -268,14 +276,14 @@ describe("mcp transport", () => {
     let sent = false
     const body = new ReadableStream<Uint8Array>({
       pull(controller) {
-        if (sent) return new Promise<void>(() => undefined)
+        if (sent) return new Promise<void>(() => {})
         sent = true
         controller.enqueue(new Uint8Array(bytes).fill(0x61))
         return undefined
       },
       cancel() {
         cancelled = true
-        return new Promise<void>(() => undefined)
+        return new Promise<void>(() => {})
       },
     })
     return { response: new Response(body, { status }), cancelled: () => cancelled }

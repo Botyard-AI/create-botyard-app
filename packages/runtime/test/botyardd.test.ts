@@ -54,7 +54,7 @@ describe("botyardd transport", () => {
       "-",
       "list_org_members",
     ])
-    assert.deepEqual(JSON.parse(only?.stdin ?? ""), { query: "secret-ish" })
+    assert.deepEqual(JSON.parse(only.stdin), { query: "secret-ish" })
   })
 
   test("exit 3 maps to ToolError carrying the tool's message", async () => {

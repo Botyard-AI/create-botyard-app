@@ -102,7 +102,9 @@ export const FORWARDED_USER_HEADER = "x-forwarded-user"
 
 const MAX_SUBJECT_LENGTH = 320
 // Printable, no whitespace, no comma: a comma means the header was repeated
-// and joined, and an email or user id never contains one.
+// and joined, and an email or user id never contains one. Matching control
+// characters is the point here, so no-control-regex does not apply.
+// eslint-disable-next-line no-control-regex
 const SUBJECT_PATTERN = /^[^\s,\u0000-\u001f\u007f]+$/u
 
 /**

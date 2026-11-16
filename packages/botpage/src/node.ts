@@ -132,5 +132,10 @@ export async function listenLoopback(
     })
   })
   if (options.botpage !== undefined) guardListen(server, { botpage: options.botpage })
-  return server.address() as AddressInfo
+  const address = server.address()
+  // A TCP listen on a host always has an AddressInfo; a string is a pipe path.
+  if (address === null || typeof address === "string") {
+    throw new Error(`@botyard/botpage: ${host}:${port} has no TCP address after listening`)
+  }
+  return address
 }
