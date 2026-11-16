@@ -2,15 +2,16 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import type { BotPage } from "@botyard/botpage"
 import { requireMember, withViewer } from "@botyard/botpage/node"
 import { serveStatic } from "./static.ts"
+import type { StaticFiles } from "./static.ts"
 
 /** Connect-style middleware, such as Vite's dev server. */
 export type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void
 
 export type AppOptions = {
   botpage: BotPage
-  /** Built UI to serve (production). */
-  staticDir?: string
-  /** Serves the UI in development (Vite). Used when `staticDir` is not set. */
+  /** Built UI to serve (production), from `loadStatic`. */
+  staticFiles?: StaticFiles
+  /** Serves the UI in development (Vite). Used when `staticFiles` is not set. */
   ui?: Middleware
 }
 
@@ -33,7 +34,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
  * the viewer in. `withViewer` gives a route the viewer, or null;
  * `requireMember` lets only members of your org through.
  */
-export function createApp({ botpage, staticDir, ui }: AppOptions): Handler {
+export function createApp({ botpage, staticFiles, ui }: AppOptions): Handler {
   const api: Record<string, Handler> = {
     "GET /api/health": async (_req, res) => {
       sendJson(res, 200, { ok: true })
@@ -69,8 +70,8 @@ export function createApp({ botpage, staticDir, ui }: AppOptions): Handler {
       sendJson(res, 405, { error: "method_not_allowed" })
       return
     }
-    if (staticDir !== undefined) {
-      if (!(await serveStatic(staticDir, url.pathname, req, res))) {
+    if (staticFiles !== undefined) {
+      if (!serveStatic(staticFiles, url.pathname, req, res)) {
         sendJson(res, 404, { error: "not_found" })
       }
       return

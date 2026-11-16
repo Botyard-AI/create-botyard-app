@@ -1,6 +1,6 @@
 // Starts the app on 127.0.0.1:<port from botyard.json>.
 //
-//   node server/index.ts         serves the built UI from dist/client (npm start)
+//   node server/index.ts         serves the built UI from dist/client, read at startup (npm start)
 //   node server/index.ts --dev   serves the UI through Vite, with hot reload (npm run dev)
 import { createServer } from "node:http"
 import path from "node:path"
@@ -9,6 +9,7 @@ import { listenLoopback } from "@botyard/botpage/node"
 import { createRuntime, TransportError } from "@botyard/runtime"
 import { createApp, type Middleware } from "./app.ts"
 import { appRoot, HOST, loadConfig } from "./config.ts"
+import { loadStatic, type StaticFiles } from "./static.ts"
 
 const dev = process.argv.includes("--dev")
 const config = await loadConfig()
@@ -42,9 +43,7 @@ if (dev) {
 }
 
 const handler = createApp(
-  dev
-    ? { botpage, ...(ui && { ui }) }
-    : { botpage, staticDir: path.join(appRoot, "dist", "client") }
+  dev ? { botpage, ...(ui && { ui }) } : { botpage, staticFiles: await loadBuiltUi() }
 )
 server.on("request", (req, res) => {
   handler(req, res).catch((err: unknown) => {
@@ -60,3 +59,16 @@ process.stdout.write(
     `(${dev ? "dev" : "production"}, runtime: ${runtime.transportKind}). ` +
     "Publish it with `npm run expose`.\n"
 )
+
+async function loadBuiltUi(): Promise<StaticFiles> {
+  const dir = path.join(appRoot, "dist", "client")
+  try {
+    return await loadStatic(dir)
+  } catch (err) {
+    if (err instanceof Error && "code" in err && err.code === "ENOENT") {
+      process.stderr.write(`No built UI in ${dir}. Run \`npm run build\` first.\n`)
+      process.exit(1)
+    }
+    throw err
+  }
+}

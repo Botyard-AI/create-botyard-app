@@ -20,7 +20,7 @@ Node 22.18 or newer: the server is TypeScript that Node runs directly.
 | `npm run dev` | Starts the server with Vite as middleware: UI hot reload, API restarts on change. |
 | `npm run dev:mock` | The same, outside a bot: Botyard tools come from `fixtures/dev.json`, and you are signed in as `ada@example.com`. |
 | `npm run build` | Builds the UI into `dist/client`. |
-| `npm start` | Serves the API and the built UI (`NODE_ENV=production`). |
+| `npm start` | Serves the API and the built UI (`NODE_ENV=production`). The UI is read into memory at startup: restart after a rebuild. |
 | `npm run expose` | Publishes the running app as a Bot Page through the `expose_botpage` tool. Add `-- --persistent` to keep it until revoked; otherwise it expires after two hours. |
 | `npm test` | Tests against the mock runtime: no bot needed. |
 | `npm run typecheck`, `npm run lint`, `npm run format` | TypeScript, ESLint and Prettier. |

@@ -33,7 +33,9 @@ Packages are released separately. A release section is headed
   for the signed-in viewer. `botyard.json` names the Bot Page and its port;
   `npm run expose` publishes it. Tests run against the mock runtime, and
   `npm run dev:mock` runs it outside a bot. Every dependency is pinned to an
-  exact version.
+  exact version in a committed, integrity-checked `package-lock.json`, and
+  install scripts are off. The CLI build pins the template's
+  `@botyard/*` dependencies to their published `latest` versions.
 
 ### Changed
 

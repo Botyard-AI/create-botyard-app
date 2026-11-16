@@ -1,7 +1,8 @@
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterAll, beforeAll, describe, expect, test } from "vitest"
+import { loadStatic } from "../server/static.ts"
 import { asViewer, startApp } from "./helpers.ts"
 
 describe("/api/me", () => {
@@ -109,7 +110,7 @@ describe("serving the built UI", () => {
   })
 
   test("index.html, assets and client-side routes", async () => {
-    const base = await startApp({ staticDir: path.join(dir, "client") })
+    const base = await startApp({ staticFiles: await loadStatic(path.join(dir, "client")) })
 
     const index = await fetch(`${base}/`)
     expect(index.headers.get("content-type")).toBe("text/html; charset=utf-8")
@@ -129,7 +130,7 @@ describe("serving the built UI", () => {
     await symlink(path.join(dir, "secret.txt"), path.join(client, "assets", "linked.txt"))
     await symlink(dir, path.join(client, "up"))
     try {
-      const base = await startApp({ staticDir: client })
+      const base = await startApp({ staticFiles: await loadStatic(client) })
       for (const probe of ["/assets/linked.txt", "/up/secret.txt"]) {
         const res = await fetch(`${base}${probe}`)
         expect(res.status, probe).toBe(404)
@@ -148,7 +149,7 @@ describe("serving the built UI", () => {
       await writeFile(locked, "no")
       await chmod(locked, 0o000)
       try {
-        const base = await startApp({ staticDir: path.join(dir, "client") })
+        const base = await startApp({ staticFiles: await loadStatic(path.join(dir, "client")) })
         expect((await fetch(`${base}/locked.txt`)).status).toBe(404)
         expect((await fetch(`${base}/`)).status).toBe(200)
       } finally {
@@ -157,15 +158,59 @@ describe("serving the built UI", () => {
     }
   )
 
+  test("files changed after startup are not read", async () => {
+    const client = path.join(dir, "client")
+    const base = await startApp({ staticFiles: await loadStatic(client) })
+    const index = path.join(client, "index.html")
+    await rename(index, `${index}.bak`)
+    await symlink(path.join(dir, "secret.txt"), index)
+    try {
+      expect(await (await fetch(`${base}/`)).text()).toBe("<!doctype html>app")
+    } finally {
+      await rm(index)
+      await rename(`${index}.bak`, index)
+    }
+  })
+
+  // Relies on /proc/self/fd; see loadStatic.
+  test.skipIf(process.platform !== "linux")(
+    "a directory swapped for an outside symlink while loading is not read",
+    async () => {
+      const client = path.join(dir, "client")
+      const assets = path.join(client, "assets")
+      const outside = path.join(dir, "outside")
+      await mkdir(outside)
+      await writeFile(path.join(outside, "index-abc.js"), "outside the UI")
+      let swapped = false
+      const swap = async (file: string): Promise<void> => {
+        if (swapped || file !== path.join(assets, "index-abc.js")) return
+        swapped = true
+        await rename(assets, `${assets}.moved`)
+        await symlink(outside, assets)
+      }
+      try {
+        const base = await startApp({ staticFiles: await loadStatic(client, swap) })
+        expect(swapped).toBe(true)
+        const res = await fetch(`${base}/assets/index-abc.js`)
+        expect(res.status).toBe(404)
+        expect(await res.text()).not.toContain("outside the UI")
+      } finally {
+        await rm(assets, { force: true })
+        await rename(`${assets}.moved`, assets)
+        await rm(outside, { recursive: true, force: true })
+      }
+    }
+  )
+
   test("HEAD sends headers without a body", async () => {
-    const base = await startApp({ staticDir: path.join(dir, "client") })
+    const base = await startApp({ staticFiles: await loadStatic(path.join(dir, "client")) })
     const res = await fetch(`${base}/`, { method: "HEAD" })
     expect(res.status).toBe(200)
     expect(await res.text()).toBe("")
   })
 
   test("never serves files outside the UI directory", async () => {
-    const base = await startApp({ staticDir: path.join(dir, "client") })
+    const base = await startApp({ staticFiles: await loadStatic(path.join(dir, "client")) })
     for (const probe of ["/../secret.txt", "/%2e%2e/secret.txt", "/assets/..%2F..%2Fsecret.txt"]) {
       const res = await fetch(`${base}${probe}`)
       expect(await res.text(), probe).not.toContain("outside the UI")

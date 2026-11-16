@@ -1,23 +1,60 @@
 // The real templates/full-app, bundled the way the build bundles it, then
 // scaffolded the way a user scaffolds it.
-import { lstat, readFile } from "node:fs/promises"
+import { lstat, mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { expect, test } from "vitest"
+import { afterAll, beforeAll, expect, test } from "vitest"
 import { bundleTemplates } from "../scripts/bundle.ts"
+import type { Registry } from "../scripts/pin.ts"
+import { pinWorkspaceDependencies, readWorkspaceVersions } from "../scripts/pin.ts"
 import { listFiles, readJson, run, tempDir } from "./helpers.ts"
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url))
+const source = path.join(repoRoot, "templates", "full-app")
 
-test("full-app bundles to plain files and scaffolds a named app", async () => {
-  const out = path.join(await tempDir(), "templates")
+/**
+ * The registry as the template's lockfile describes it, so the test runs
+ * offline. The build checks the real registry (scripts/bundle-templates.ts).
+ */
+async function lockfileRegistry(): Promise<Registry> {
+  const lock = await readJson(path.join(source, "package-lock.json"))
+  const packages = isRecord(lock) && isRecord(lock["packages"]) ? lock["packages"] : {}
+  return async (name) => {
+    const entry = packages[`node_modules/${name}`]
+    const version = isRecord(entry) ? entry["version"] : undefined
+    const integrity = isRecord(entry) ? entry["integrity"] : undefined
+    return {
+      latest: typeof version === "string" ? version : undefined,
+      integrity: (v) => (v === version && typeof integrity === "string" ? integrity : undefined),
+    }
+  }
+}
+
+let bundleDir: string
+let out: string
+let pinned: Map<string, string>
+// Shared by the tests below, so not a tempDir(), which goes after each test.
+beforeAll(async () => {
+  bundleDir = await mkdtemp(path.join(tmpdir(), "cba-bundle-"))
+  out = path.join(bundleDir, "templates")
   const names = await bundleTemplates({
     sourceDir: path.join(repoRoot, "templates"),
     outDir: out,
     root: repoRoot,
   })
   expect(names).toContain("full-app")
+  pinned = await pinWorkspaceDependencies(
+    path.join(out, "full-app"),
+    await readWorkspaceVersions(repoRoot),
+    await lockfileRegistry()
+  )
+})
+afterAll(async () => {
+  await rm(bundleDir, { recursive: true, force: true })
+})
 
+test("full-app bundles to plain files and scaffolds a named app", async () => {
   const cwd = await tempDir()
   const result = await run(["quotes"], { cwd, templatesDir: out })
   expect(result).toMatchObject({ code: 0, stderr: "" })
@@ -57,6 +94,7 @@ test("full-app bundles to plain files and scaffolds a named app", async () => {
   expect(await readJson(path.join(app, "package.json"))).toMatchObject({
     name: "quotes",
     private: true,
+    dependencies: Object.fromEntries(pinned),
   })
   expect(await readJson(path.join(app, "botyard.json"))).toEqual({ name: "quotes", port: 8787 })
   expect(await readJson(path.join(app, "package-lock.json"))).toMatchObject({
@@ -66,10 +104,16 @@ test("full-app bundles to plain files and scaffolds a named app", async () => {
   expect(await readFile(path.join(app, ".npmrc"), "utf8")).toMatch(/^ignore-scripts=true$/m)
 })
 
-test("full-app's lockfile matches package.json and pins every package by integrity", async () => {
-  const dir = path.join(repoRoot, "templates", "full-app")
-  const pkg = await readJson(path.join(dir, "package.json"))
-  const lock = await readJson(path.join(dir, "package-lock.json"))
+test("the bundle pins the SDK packages this repository builds", () => {
+  expect([...pinned.keys()].sort((a, b) => a.localeCompare(b))).toEqual([
+    "@botyard/botpage",
+    "@botyard/runtime",
+  ])
+})
+
+test("full-app's lockfile matches the bundled package.json and pins every package by integrity", async () => {
+  const pkg = await readJson(path.join(out, "full-app", "package.json"))
+  const lock = await readJson(path.join(source, "package-lock.json"))
   expect(lock).toMatchObject({ lockfileVersion: 3 })
   const packages = isRecord(lock) && isRecord(lock["packages"]) ? lock["packages"] : {}
   const root = packages[""]
@@ -94,7 +138,7 @@ test("full-app's lockfile matches package.json and pins every package by integri
 })
 
 test("full-app pins every dependency to an exact version and has no install scripts", async () => {
-  const pkg = await readJson(path.join(repoRoot, "templates", "full-app", "package.json"))
+  const pkg = await readJson(path.join(out, "full-app", "package.json"))
   expect(pkg).toMatchObject({ private: true })
   const field = (key: string): Record<string, unknown> => {
     const value = isRecord(pkg) ? pkg[key] : undefined

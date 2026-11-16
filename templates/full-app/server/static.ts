@@ -1,8 +1,7 @@
-import { open, realpath } from "node:fs/promises"
-import type { FileHandle } from "node:fs/promises"
+import { constants } from "node:fs"
+import { lstat, open, readdir, readlink, realpath } from "node:fs/promises"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import path from "node:path"
-import { pipeline } from "node:stream/promises"
 
 const TYPES: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
@@ -18,101 +17,125 @@ const TYPES: Readonly<Record<string, string>> = {
   ".txt": "text/plain; charset=utf-8",
 }
 
+type StaticFile = { readonly body: Buffer; readonly type: string }
+
+/** The built UI, read into memory once at startup. */
+export type StaticFiles = ReadonlyMap<string, StaticFile>
+
 /**
- * Serves the built UI from `root`: files as they are, and index.html for any
- * other path without a file extension, so client-side routes load the app.
- * Returns false when there is nothing to serve.
+ * Reads the built UI under `root` into memory, keyed by URL path ("/assets/x.js").
+ * Requests are then answered from memory: nothing on disk is opened while the
+ * server runs, so changing files under `root` later has no effect until a
+ * restart.
  *
- * A file is served only if its real path, after symlinks, is inside the real
- * `root`, and only once it has been opened, so an unreadable file is "not
- * found" rather than a crash.
+ * Only regular files are read. Symlinks are skipped, and so are files that
+ * cannot be read. Each file is opened without following a symlink at its own
+ * name; on Linux the opened file's real path is then read back from the kernel
+ * (/proc/self/fd) and the file is kept only if it is inside `root`, so a
+ * directory swapped for a symlink while loading cannot pull in an outside
+ * file. Without /proc (macOS, Windows) the file must be the one listed at that
+ * path, which does not catch such a swap; there, as everywhere, whoever can
+ * rename directories under `root` can also replace the UI itself.
  */
-export async function serveStatic(
+export async function loadStatic(
   root: string,
+  /** Test seam: runs before each file is opened. */
+  beforeOpen?: (file: string) => Promise<void>
+): Promise<StaticFiles> {
+  const realRoot = await realpath(root)
+  const files = new Map<string, StaticFile>()
+  const walk = async (dir: string, urlPath: string): Promise<void> => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const file = path.join(dir, entry.name)
+      const url = `${urlPath}/${entry.name}`
+      if (entry.isDirectory()) await walk(file, url)
+      else if (entry.isFile()) {
+        await beforeOpen?.(file)
+        const body = await readInside(realRoot, file)
+        if (body !== null) {
+          files.set(url, {
+            body,
+            type: TYPES[path.extname(entry.name)] ?? "application/octet-stream",
+          })
+        }
+      }
+    }
+  }
+  await walk(realRoot, "")
+  return files
+}
+
+/** The file's bytes, or null when it is unreadable, not a regular file, or not inside `realRoot`. */
+async function readInside(realRoot: string, file: string): Promise<Buffer | null> {
+  let handle
+  try {
+    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW)
+  } catch {
+    return null
+  }
+  try {
+    const opened = await handle.stat()
+    if (!opened.isFile()) return null
+    const where = await openedPath(handle.fd)
+    if (where === undefined) {
+      // No /proc: fall back to checking it is the file listed at that path.
+      const listed = await lstat(file)
+      if (listed.dev !== opened.dev || listed.ino !== opened.ino) return null
+    } else if (where === null || !where.startsWith(realRoot + path.sep)) {
+      return null
+    }
+    return await handle.readFile()
+  } catch {
+    return null
+  } finally {
+    await handle.close()
+  }
+}
+
+/** The kernel's path of an open file; undefined without /proc, null if unknown. */
+async function openedPath(fd: number): Promise<string | null | undefined> {
+  if (process.platform !== "linux") return undefined
+  try {
+    const where = await readlink(`/proc/self/fd/${String(fd)}`)
+    return path.isAbsolute(where) && !where.endsWith(" (deleted)") ? where : null
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Answers a GET or HEAD for the built UI: a file as it is, or index.html for
+ * any other path without a file extension, so client-side routes load the
+ * app. Returns false when there is nothing to serve.
+ */
+export function serveStatic(
+  files: StaticFiles,
   pathname: string,
   req: IncomingMessage,
   res: ServerResponse
-): Promise<boolean> {
+): boolean {
   let decoded: string
   try {
     decoded = decodeURIComponent(pathname)
   } catch {
     return false
   }
-  let realRoot: string
-  try {
-    realRoot = await realpath(root)
-  } catch {
-    return false
+  // Keys are exact paths, so "..", "//" and the like simply match nothing.
+  let file = files.get(decoded)
+  let immutable = decoded.startsWith("/assets/")
+  if (file === undefined && path.posix.extname(decoded) === "") {
+    file = files.get("/index.html")
+    immutable = false
   }
+  if (file === undefined) return false
 
-  const file = await openInside(realRoot, path.join(realRoot, decoded))
-  if (file !== null) {
-    await send(file, req, res, decoded.startsWith("/assets/"))
-    return true
-  }
-  if (path.extname(decoded) === "") {
-    const index = await openInside(realRoot, path.join(realRoot, "index.html"))
-    if (index !== null) {
-      await send(index, req, res, false)
-      return true
-    }
-  }
-  return false
-}
-
-type OpenFile = { readonly handle: FileHandle; readonly type: string }
-
-/** Opens `file` if it is a regular file whose real path is inside `realRoot`. */
-async function openInside(realRoot: string, file: string): Promise<OpenFile | null> {
-  let real: string
-  try {
-    real = await realpath(file)
-  } catch {
-    return null
-  }
-  if (!real.startsWith(realRoot + path.sep)) return null
-
-  let handle: FileHandle
-  try {
-    handle = await open(real, "r")
-  } catch {
-    return null
-  }
-  try {
-    if (!(await handle.stat()).isFile()) {
-      await handle.close()
-      return null
-    }
-  } catch {
-    await handle.close()
-    return null
-  }
-  return { handle, type: TYPES[path.extname(real)] ?? "application/octet-stream" }
-}
-
-async function send(
-  file: OpenFile,
-  req: IncomingMessage,
-  res: ServerResponse,
-  immutable: boolean
-): Promise<void> {
   res.writeHead(200, {
     "content-type": file.type,
+    "content-length": file.body.length,
     "x-content-type-options": "nosniff",
     // Vite puts content hashes in /assets/ file names, so those never change.
     "cache-control": immutable ? "public, max-age=31536000, immutable" : "no-cache",
   })
-  if (req.method === "HEAD") {
-    await file.handle.close()
-    res.end()
-    return
-  }
-  try {
-    // pipeline closes the handle's stream and the response on success and on error.
-    await pipeline(file.handle.createReadStream(), res)
-  } catch {
-    // A read error after the headers went out: the response is already
-    // destroyed, which the client sees as a truncated body.
-  }
+  res.end(req.method === "HEAD" ? undefined : file.body)
+  return true
 }
