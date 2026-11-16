@@ -7,10 +7,10 @@
  * you can pass it straight in. Tests can pass a fake.
  */
 export interface CallOptions {
-  timeoutMs?: number;
-  signal?: AbortSignal;
+  timeoutMs?: number
+  signal?: AbortSignal
 }
 
 export interface ToolCaller {
-  call<T = unknown>(tool: string, args?: Record<string, unknown>, opts?: CallOptions): Promise<T>;
+  call<T = unknown>(tool: string, args?: Record<string, unknown>, opts?: CallOptions): Promise<T>
 }

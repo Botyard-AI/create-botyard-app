@@ -1,11 +1,11 @@
-import type { TransportKind } from "./types.ts";
+import type { TransportKind } from "./types.ts"
 
 export interface BotyardErrorOptions {
   /** The canonical tool name the caller asked for, when the error is about a call. */
-  readonly tool?: string | undefined;
+  readonly tool?: string | undefined
   /** The transport that produced the error, once one has been chosen. */
-  readonly transport?: TransportKind | undefined;
-  readonly cause?: unknown;
+  readonly transport?: TransportKind | undefined
+  readonly cause?: unknown
 }
 
 /**
@@ -15,14 +15,14 @@ export interface BotyardErrorOptions {
  * Messages never contain tool arguments or credentials.
  */
 export class BotyardError extends Error {
-  readonly tool: string | undefined;
-  readonly transport: TransportKind | undefined;
+  readonly tool: string | undefined
+  readonly transport: TransportKind | undefined
 
   constructor(message: string, options: BotyardErrorOptions = {}) {
-    super(message, options.cause === undefined ? undefined : { cause: options.cause });
-    this.name = "BotyardError";
-    this.tool = options.tool;
-    this.transport = options.transport;
+    super(message, options.cause === undefined ? undefined : { cause: options.cause })
+    this.name = "BotyardError"
+    this.tool = options.tool
+    this.transport = options.transport
   }
 }
 
@@ -33,8 +33,8 @@ export class BotyardError extends Error {
  */
 export class InvalidInputError extends BotyardError {
   constructor(message: string, options: BotyardErrorOptions = {}) {
-    super(message, options);
-    this.name = "InvalidInputError";
+    super(message, options)
+    this.name = "InvalidInputError"
   }
 }
 
@@ -44,16 +44,16 @@ export class InvalidInputError extends BotyardError {
  */
 export class UnknownToolError extends InvalidInputError {
   constructor(message: string, options: BotyardErrorOptions = {}) {
-    super(message, options);
-    this.name = "UnknownToolError";
+    super(message, options)
+    this.name = "UnknownToolError"
   }
 }
 
 export interface ToolErrorOptions extends BotyardErrorOptions {
   /** The MCP content blocks the tool returned with its error. */
-  readonly content?: readonly unknown[] | undefined;
+  readonly content?: readonly unknown[] | undefined
   /** The tool's structured error payload, when it sent one. */
-  readonly structuredContent?: unknown;
+  readonly structuredContent?: unknown
 }
 
 /**
@@ -61,14 +61,14 @@ export interface ToolErrorOptions extends BotyardErrorOptions {
  * found" or "permission denied". `message` is the tool's own text.
  */
 export class ToolError extends BotyardError {
-  readonly content: readonly unknown[];
-  readonly structuredContent: unknown;
+  readonly content: readonly unknown[]
+  readonly structuredContent: unknown
 
   constructor(message: string, options: ToolErrorOptions = {}) {
-    super(message, options);
-    this.name = "ToolError";
-    this.content = options.content ?? [];
-    this.structuredContent = options.structuredContent;
+    super(message, options)
+    this.name = "ToolError"
+    this.content = options.content ?? []
+    this.structuredContent = options.structuredContent
   }
 }
 
@@ -81,8 +81,8 @@ export class ToolError extends BotyardError {
  */
 export class OutcomeUnknownError extends BotyardError {
   constructor(message: string, options: BotyardErrorOptions = {}) {
-    super(message, options);
-    this.name = "OutcomeUnknownError";
+    super(message, options)
+    this.name = "OutcomeUnknownError"
   }
 }
 
@@ -93,7 +93,7 @@ export class OutcomeUnknownError extends BotyardError {
  */
 export class TransportError extends BotyardError {
   constructor(message: string, options: BotyardErrorOptions = {}) {
-    super(message, options);
-    this.name = "TransportError";
+    super(message, options)
+    this.name = "TransportError"
   }
 }

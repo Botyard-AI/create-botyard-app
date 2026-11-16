@@ -1,23 +1,23 @@
 /** Header values as Node's `IncomingMessage` exposes them. */
-export type NodeHeaderBag = Readonly<Record<string, string | readonly string[] | undefined>>;
+export type NodeHeaderBag = Readonly<Record<string, string | readonly string[] | undefined>>
 
 /** Anything with headers: a Web `Request`, or Node's `IncomingMessage`. */
 export interface RequestLike {
-  readonly headers: Headers | NodeHeaderBag;
+  readonly headers: Headers | NodeHeaderBag
   /**
    * The TCP socket, when the request came straight from Node's HTTP server.
    * Used to check that the peer and the bound address are loopback.
    */
   readonly socket?:
     | {
-        readonly localAddress?: string | undefined;
-        readonly remoteAddress?: string | undefined;
+        readonly localAddress?: string | undefined
+        readonly remoteAddress?: string | undefined
       }
-    | undefined;
+    | undefined
 }
 
 function isWebHeaders(headers: Headers | NodeHeaderBag): headers is Headers {
-  return typeof (headers as { get?: unknown }).get === "function";
+  return typeof (headers as { get?: unknown }).get === "function"
 }
 
 /**
@@ -25,9 +25,9 @@ function isWebHeaders(headers: Headers | NodeHeaderBag): headers is Headers {
  * Web `Headers` joins repeats with ", ". Callers must treat both as suspect.
  */
 export function readHeader(req: RequestLike, name: string): string | readonly string[] | null {
-  const lower = name.toLowerCase();
+  const lower = name.toLowerCase()
   if (isWebHeaders(req.headers)) {
-    return req.headers.get(lower);
+    return req.headers.get(lower)
   }
-  return req.headers[lower] ?? null;
+  return req.headers[lower] ?? null
 }

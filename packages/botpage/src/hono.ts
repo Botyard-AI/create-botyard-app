@@ -4,54 +4,62 @@
  * On `@hono/node-server` the Node socket is used for the loopback checks; on
  * other runtimes pass `bind` to `createBotPage`.
  */
-import type { MiddlewareHandler } from "hono";
+import type { MiddlewareHandler } from "hono"
 
-import type { BotPage, RequireMemberOptions, Viewer } from "./botpage.ts";
-import type { RequestLike } from "./headers.ts";
-import { guardFailure } from "./responses.ts";
+import type { BotPage, RequireMemberOptions, Viewer } from "./botpage.ts"
+import type { RequestLike } from "./headers.ts"
+import { guardFailure } from "./responses.ts"
 
 export interface BotPageVariables {
-  viewer: Viewer | null;
+  viewer: Viewer | null
 }
 
 export interface BotPageEnv {
-  Variables: BotPageVariables;
+  Variables: BotPageVariables
 }
 
 export interface ViewerMiddlewareOptions extends RequireMemberOptions {
   /** `member`: answer 401/403 unless the viewer is an org member. Default: no guard. */
-  require?: "member";
+  require?: "member"
 }
 
 interface NodeBindings {
-  incoming?: { socket?: { localAddress?: string; remoteAddress?: string } };
+  incoming?: { socket?: { localAddress?: string; remoteAddress?: string } }
 }
 
 function requestLike(raw: Request, env: unknown): RequestLike {
-  const socket = (env as NodeBindings | undefined)?.incoming?.socket;
+  const socket = (env as NodeBindings | undefined)?.incoming?.socket
   return socket === undefined
     ? { headers: raw.headers }
-    : { headers: raw.headers, socket: { localAddress: socket.localAddress, remoteAddress: socket.remoteAddress } };
+    : {
+        headers: raw.headers,
+        socket: { localAddress: socket.localAddress, remoteAddress: socket.remoteAddress },
+      }
 }
 
 /**
  * Set `c.get("viewer")` for downstream handlers. With `require: "member"`,
  * non-members get a JSON 401/403 (or 503 when the directory is unavailable).
  */
-export function viewerMiddleware(botpage: BotPage, options: ViewerMiddlewareOptions = {}): MiddlewareHandler<BotPageEnv> {
+export function viewerMiddleware(
+  botpage: BotPage,
+  options: ViewerMiddlewareOptions = {}
+): MiddlewareHandler<BotPageEnv> {
   return async (c, next) => {
-    const req = requestLike(c.req.raw, c.env);
+    const req = requestLike(c.req.raw, c.env)
     try {
       const viewer =
-        options.require === "member" ? await botpage.requireMember(req, options) : await botpage.viewer(req);
-      c.set("viewer", viewer);
+        options.require === "member"
+          ? await botpage.requireMember(req, options)
+          : await botpage.viewer(req)
+      c.set("viewer", viewer)
     } catch (error) {
-      const failure = guardFailure(error);
-      if (failure === null) throw error;
-      c.header("cache-control", "no-store");
-      return c.json(failure.body, failure.status);
+      const failure = guardFailure(error)
+      if (failure === null) throw error
+      c.header("cache-control", "no-store")
+      return c.json(failure.body, failure.status)
     }
-    await next();
-    return undefined;
-  };
+    await next()
+    return undefined
+  }
 }

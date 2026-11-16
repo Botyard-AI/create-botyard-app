@@ -1,29 +1,29 @@
-import { BotPageError, BotPageToolError } from "./errors.ts";
-import type { ToolCaller } from "./tools.ts";
+import { BotPageError, BotPageToolError } from "./errors.ts"
+import type { ToolCaller } from "./tools.ts"
 
-export const LIST_NAVIGATION_DESTINATIONS_TOOL = "list_navigation_destinations";
-export const GET_IDENTITY_TOOL = "get_identity";
-export const DEFAULT_APP_URL = "https://app.botyard.io";
+export const LIST_NAVIGATION_DESTINATIONS_TOOL = "list_navigation_destinations"
+export const GET_IDENTITY_TOOL = "get_identity"
+export const DEFAULT_APP_URL = "https://app.botyard.io"
 
 /** Base class for deeplink failures. */
 export class DeeplinkError extends BotPageError {
-  override name = "DeeplinkError";
-  readonly key: string;
+  override name = "DeeplinkError"
+  readonly key: string
 
   constructor(key: string, message: string) {
-    super(message);
-    this.key = key;
+    super(message)
+    this.key = key
   }
 }
 
 /** The navigation directory has no destination with this key. */
 export class UnknownDestinationError extends DeeplinkError {
-  override name = "UnknownDestinationError";
+  override name = "UnknownDestinationError"
 }
 
 /** The params given do not match the destination's `required_params` exactly, or a value is unsafe. */
 export class DeeplinkParamsError extends DeeplinkError {
-  override name = "DeeplinkParamsError";
+  override name = "DeeplinkParamsError"
 }
 
 /**
@@ -37,52 +37,52 @@ export class DeeplinkParamsError extends DeeplinkError {
  * sends viewers to a 404.
  */
 export class DeeplinkUnavailableError extends DeeplinkError {
-  override name = "DeeplinkUnavailableError";
+  override name = "DeeplinkUnavailableError"
 }
 
 /** A navigation directory entry, as far as this package needs it. */
 export interface NavigationDestination {
-  readonly key: string;
-  readonly label: string;
-  readonly requiredParams: readonly string[];
+  readonly key: string
+  readonly label: string
+  readonly requiredParams: readonly string[]
   /** Route template such as `/orgs/$orgSlug/bots/$botSlug`, when the directory provides it. */
-  readonly path: string | null;
+  readonly path: string | null
   /**
    * Query-param templates such as `[{ name: "tab", value: "compute" }]`, in the
    * order the directory gives them. A value may be a `$param` placeholder.
    */
-  readonly search: readonly NavigationSearchParam[];
+  readonly search: readonly NavigationSearchParam[]
 }
 
 /** One query param of a destination's `search` template. */
 export interface NavigationSearchParam {
-  readonly name: string;
-  readonly value: string;
+  readonly name: string
+  readonly value: string
 }
 
 export interface DeeplinksOptions {
   /** Botyard app origin. Default `https://app.botyard.io`. Must be https. */
-  appUrl?: string;
+  appUrl?: string
   /** The bot's org slug. Default: read once from `get_identity`. */
-  orgSlug?: string;
+  orgSlug?: string
   /** How long directory entries are cached. Default 10 minutes. */
-  ttlMs?: number;
+  ttlMs?: number
   /** Per-call timeout passed to the tool caller. Default 10 s. */
-  timeoutMs?: number;
+  timeoutMs?: number
   /** Clock, for tests. */
-  now?: () => number;
+  now?: () => number
 }
 
-const ORG_PARAM = "orgSlug";
-const LITERAL_SEGMENT = /^[A-Za-z0-9._~-]+$/;
-const PARAM_NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
+const ORG_PARAM = "orgSlug"
+const LITERAL_SEGMENT = /^[A-Za-z0-9._~-]+$/
+const PARAM_NAME = /^[A-Za-z][A-Za-z0-9_]*$/
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function stringArray(value: unknown): string[] | null {
-  return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : null;
+  return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : null
 }
 
 /**
@@ -92,56 +92,63 @@ function stringArray(value: unknown): string[] | null {
  * anything else unreadable is `null`.
  */
 function parseSearch(raw: unknown): NavigationSearchParam[] | null {
-  if (raw === undefined || raw === null) return [];
+  if (raw === undefined || raw === null) return []
   if (Array.isArray(raw)) {
-    const params: NavigationSearchParam[] = [];
+    const params: NavigationSearchParam[] = []
     for (const item of raw) {
-      if (!isRecord(item) || typeof item["name"] !== "string" || typeof item["value"] !== "string") return null;
-      params.push({ name: item["name"], value: item["value"] });
+      if (!isRecord(item) || typeof item["name"] !== "string" || typeof item["value"] !== "string")
+        return null
+      params.push({ name: item["name"], value: item["value"] })
     }
-    return params;
+    return params
   }
   if (isRecord(raw)) {
-    const params: NavigationSearchParam[] = [];
+    const params: NavigationSearchParam[] = []
     for (const name of Object.keys(raw).sort()) {
-      const value = raw[name];
-      if (typeof value !== "string") return null;
-      params.push({ name, value });
+      const value = raw[name]
+      if (typeof value !== "string") return null
+      params.push({ name, value })
     }
-    return params;
+    return params
   }
-  return null;
+  return null
 }
 
 function parseDestination(entry: unknown): NavigationDestination | null {
-  if (!isRecord(entry) || typeof entry["key"] !== "string") return null;
-  const requiredParams = stringArray(entry["required_params"]) ?? stringArray(entry["params"]) ?? [];
-  const search = parseSearch(entry["search"]);
+  if (!isRecord(entry) || typeof entry["key"] !== "string") return null
+  const requiredParams = stringArray(entry["required_params"]) ?? stringArray(entry["params"]) ?? []
+  const search = parseSearch(entry["search"])
   // An unreadable search template makes the whole route unusable: building
   // the link without it could open the wrong tab or entity.
-  const path = typeof entry["path"] === "string" && search !== null ? entry["path"] : null;
+  const path = typeof entry["path"] === "string" && search !== null ? entry["path"] : null
   return {
     key: entry["key"],
     label: typeof entry["label"] === "string" ? entry["label"] : entry["key"],
     requiredParams,
     path,
     search: search ?? [],
-  };
+  }
 }
 
 /** Tools that return a list may arrive bare or wrapped as `{ result: [...] }`. */
 function unwrapList(tool: string, response: unknown): unknown[] {
-  if (Array.isArray(response)) return response;
-  if (isRecord(response) && Array.isArray(response["result"])) return response["result"];
-  throw new BotPageToolError(tool, "response is not a list");
+  if (Array.isArray(response)) return response
+  if (isRecord(response) && Array.isArray(response["result"])) return response["result"]
+  throw new BotPageToolError(tool, "response is not a list")
 }
 
 function isUnsafeSegment(value: string): boolean {
-  return value.length === 0 || value.includes("/") || value.includes("\\") || value === "." || value === "..";
+  return (
+    value.length === 0 ||
+    value.includes("/") ||
+    value.includes("\\") ||
+    value === "." ||
+    value === ".."
+  )
 }
 
 function isPrintable(value: string): boolean {
-  return value.trim().length > 0 && !/[\u0000-\u001f\u007f-\u009f]/u.test(value);
+  return value.trim().length > 0 && !/[\u0000-\u001f\u007f-\u009f]/u.test(value)
 }
 
 /**
@@ -153,89 +160,104 @@ export function buildDeeplink(
   destination: NavigationDestination,
   orgSlug: string,
   params: Readonly<Record<string, string>>,
-  appUrl: string = DEFAULT_APP_URL,
+  appUrl: string = DEFAULT_APP_URL
 ): string {
-  const { key } = destination;
+  const { key } = destination
   if (destination.path === null) {
     throw new DeeplinkUnavailableError(
       key,
       `Cannot build a link to "${key}": list_navigation_destinations does not return route paths yet ` +
-        "(Botyard platform task 5822). No hand-written URL is used instead.",
-    );
+        "(Botyard platform task 5822). No hand-written URL is used instead."
+    )
   }
-  const required = new Set(destination.requiredParams);
-  const given = Object.keys(params);
-  const missing = [...required].filter((name) => !(name in params)).sort();
-  const unexpected = given.filter((name) => !required.has(name)).sort();
+  const required = new Set(destination.requiredParams)
+  const given = Object.keys(params)
+  const missing = [...required].filter((name) => !(name in params)).sort()
+  const unexpected = given.filter((name) => !required.has(name)).sort()
   if (missing.length > 0 || unexpected.length > 0) {
     throw new DeeplinkParamsError(
       key,
       `"${key}" expects params [${[...required].sort().join(", ")}]; ` +
-        `missing [${missing.join(", ")}], unexpected [${unexpected.join(", ")}].`,
-    );
+        `missing [${missing.join(", ")}], unexpected [${unexpected.join(", ")}].`
+    )
   }
   if (isUnsafeSegment(orgSlug)) {
-    throw new DeeplinkParamsError(key, `org slug must be a single path segment (got ${JSON.stringify(orgSlug)}).`);
+    throw new DeeplinkParamsError(
+      key,
+      `org slug must be a single path segment (got ${JSON.stringify(orgSlug)}).`
+    )
   }
 
-  const segments = destination.path.split("/");
+  const segments = destination.path.split("/")
   if (segments[0] !== "" || segments[1] !== "orgs" || segments[2] !== `$${ORG_PARAM}`) {
-    throw new DeeplinkUnavailableError(key, `"${key}" has an unexpected route template: ${destination.path}`);
+    throw new DeeplinkUnavailableError(
+      key,
+      `"${key}" has an unexpected route template: ${destination.path}`
+    )
   }
   const path = segments
     .map((segment, index) => {
-      if (index === 0) return "";
+      if (index === 0) return ""
       if (!segment.startsWith("$")) {
         if (!LITERAL_SEGMENT.test(segment)) {
-          throw new DeeplinkUnavailableError(key, `"${key}" has an unexpected route segment: ${segment}`);
+          throw new DeeplinkUnavailableError(
+            key,
+            `"${key}" has an unexpected route segment: ${segment}`
+          )
         }
-        return segment;
+        return segment
       }
-      const name = segment.slice(1);
+      const name = segment.slice(1)
       if (!PARAM_NAME.test(name) || (name !== ORG_PARAM && !required.has(name))) {
-        throw new DeeplinkUnavailableError(key, `"${key}" uses an undeclared route param: ${segment}`);
+        throw new DeeplinkUnavailableError(
+          key,
+          `"${key}" uses an undeclared route param: ${segment}`
+        )
       }
-      const value = name === ORG_PARAM ? orgSlug : (params[name] ?? "");
+      const value = name === ORG_PARAM ? orgSlug : (params[name] ?? "")
       if (isUnsafeSegment(value)) {
         throw new DeeplinkParamsError(
           key,
-          `param "${name}" must be a non-empty single path segment (got ${JSON.stringify(value)}).`,
-        );
+          `param "${name}" must be a non-empty single path segment (got ${JSON.stringify(value)}).`
+        )
       }
-      return encodeURIComponent(value);
+      return encodeURIComponent(value)
     })
-    .join("/");
+    .join("/")
 
   // Appended in the order the directory gives (it sorts them), so the URL
   // matches the one emit_navigation resolves.
-  const search = new URLSearchParams();
+  const search = new URLSearchParams()
   for (const { name, value: template } of destination.search) {
-    let value = template;
+    let value = template
     if (template.startsWith("$")) {
-      const param = template.slice(1);
+      const param = template.slice(1)
       if (!required.has(param)) {
-        throw new DeeplinkUnavailableError(key, `"${key}" uses an undeclared search param: ${template}`);
+        throw new DeeplinkUnavailableError(
+          key,
+          `"${key}" uses an undeclared search param: ${template}`
+        )
       }
-      value = params[param] ?? "";
+      value = params[param] ?? ""
       if (!isPrintable(value)) {
-        throw new DeeplinkParamsError(key, `param "${param}" must be non-empty printable text.`);
+        throw new DeeplinkParamsError(key, `param "${param}" must be non-empty printable text.`)
       }
     }
-    search.append(name, value);
+    search.append(name, value)
   }
-  const query = search.toString();
-  return new URL(query ? `${path}?${query}` : path, appUrl).toString();
+  const query = search.toString()
+  return new URL(query ? `${path}?${query}` : path, appUrl).toString()
 }
 
 function normalizeAppUrl(appUrl: string): string {
-  let url: URL;
+  let url: URL
   try {
-    url = new URL(appUrl);
+    url = new URL(appUrl)
   } catch {
-    throw new BotPageError(`appUrl is not a URL: ${appUrl}`);
+    throw new BotPageError(`appUrl is not a URL: ${appUrl}`)
   }
-  if (url.protocol !== "https:") throw new BotPageError(`appUrl must be https: ${appUrl}`);
-  return url.origin;
+  if (url.protocol !== "https:") throw new BotPageError(`appUrl must be https: ${appUrl}`)
+  return url.origin
 }
 
 /**
@@ -244,43 +266,46 @@ function normalizeAppUrl(appUrl: string): string {
  * required params come from that directory; nothing is hand-written.
  */
 export class Deeplinks {
-  readonly #tools: ToolCaller;
-  readonly #appUrl: string;
-  readonly #ttlMs: number;
-  readonly #timeoutMs: number;
-  readonly #now: () => number;
-  readonly #cache = new Map<string, { destination: NavigationDestination | null; expiresAt: number }>();
-  #orgSlug: Promise<string> | null;
+  readonly #tools: ToolCaller
+  readonly #appUrl: string
+  readonly #ttlMs: number
+  readonly #timeoutMs: number
+  readonly #now: () => number
+  readonly #cache = new Map<
+    string,
+    { destination: NavigationDestination | null; expiresAt: number }
+  >()
+  #orgSlug: Promise<string> | null
 
   constructor(tools: ToolCaller, options: DeeplinksOptions = {}) {
-    this.#tools = tools;
-    this.#appUrl = normalizeAppUrl(options.appUrl ?? DEFAULT_APP_URL);
-    this.#ttlMs = options.ttlMs ?? 10 * 60_000;
-    this.#timeoutMs = options.timeoutMs ?? 10_000;
-    this.#now = options.now ?? Date.now;
-    this.#orgSlug = options.orgSlug === undefined ? null : Promise.resolve(options.orgSlug);
+    this.#tools = tools
+    this.#appUrl = normalizeAppUrl(options.appUrl ?? DEFAULT_APP_URL)
+    this.#ttlMs = options.ttlMs ?? 10 * 60_000
+    this.#timeoutMs = options.timeoutMs ?? 10_000
+    this.#now = options.now ?? Date.now
+    this.#orgSlug = options.orgSlug === undefined ? null : Promise.resolve(options.orgSlug)
   }
 
   /** The directory entry for `key`, or `null` if there is none. */
   async destination(key: string): Promise<NavigationDestination | null> {
-    const cached = this.#cache.get(key);
-    if (cached !== undefined && cached.expiresAt > this.#now()) return cached.destination;
-    let response: unknown;
+    const cached = this.#cache.get(key)
+    if (cached !== undefined && cached.expiresAt > this.#now()) return cached.destination
+    let response: unknown
     try {
       response = await this.#tools.call(
         LIST_NAVIGATION_DESTINATIONS_TOOL,
         { query: key },
-        { timeoutMs: this.#timeoutMs },
-      );
+        { timeoutMs: this.#timeoutMs }
+      )
     } catch (error) {
-      throw new BotPageToolError(LIST_NAVIGATION_DESTINATIONS_TOOL, "call failed", { cause: error });
+      throw new BotPageToolError(LIST_NAVIGATION_DESTINATIONS_TOOL, "call failed", { cause: error })
     }
     const destination =
       unwrapList(LIST_NAVIGATION_DESTINATIONS_TOOL, response)
         .map(parseDestination)
-        .find((entry) => entry?.key === key) ?? null;
-    this.#cache.set(key, { destination, expiresAt: this.#now() + this.#ttlMs });
-    return destination;
+        .find((entry) => entry?.key === key) ?? null
+    this.#cache.set(key, { destination, expiresAt: this.#now() + this.#ttlMs })
+    return destination
   }
 
   /**
@@ -295,35 +320,35 @@ export class Deeplinks {
    * @throws {BotPageToolError} a platform tool call failed.
    */
   async resolve(key: string, params: Readonly<Record<string, string>> = {}): Promise<string> {
-    const destination = await this.destination(key);
+    const destination = await this.destination(key)
     if (destination === null) {
       throw new UnknownDestinationError(
         key,
-        `No navigation destination "${key}". Call list_navigation_destinations to see valid keys.`,
-      );
+        `No navigation destination "${key}". Call list_navigation_destinations to see valid keys.`
+      )
     }
-    return buildDeeplink(destination, await this.#resolveOrgSlug(), params, this.#appUrl);
+    return buildDeeplink(destination, await this.#resolveOrgSlug(), params, this.#appUrl)
   }
 
   #resolveOrgSlug(): Promise<string> {
     this.#orgSlug ??= this.#fetchOrgSlug().catch((error: unknown) => {
-      this.#orgSlug = null;
-      throw error;
-    });
-    return this.#orgSlug;
+      this.#orgSlug = null
+      throw error
+    })
+    return this.#orgSlug
   }
 
   async #fetchOrgSlug(): Promise<string> {
-    let response: unknown;
+    let response: unknown
     try {
-      response = await this.#tools.call(GET_IDENTITY_TOOL, {}, { timeoutMs: this.#timeoutMs });
+      response = await this.#tools.call(GET_IDENTITY_TOOL, {}, { timeoutMs: this.#timeoutMs })
     } catch (error) {
-      throw new BotPageToolError(GET_IDENTITY_TOOL, "call failed", { cause: error });
+      throw new BotPageToolError(GET_IDENTITY_TOOL, "call failed", { cause: error })
     }
-    const slug = isRecord(response) ? response["org_slug"] : undefined;
+    const slug = isRecord(response) ? response["org_slug"] : undefined
     if (typeof slug !== "string" || slug.length === 0) {
-      throw new BotPageToolError(GET_IDENTITY_TOOL, "response has no org_slug");
+      throw new BotPageToolError(GET_IDENTITY_TOOL, "response has no org_slug")
     }
-    return slug;
+    return slug
   }
 }
