@@ -15,3 +15,11 @@ Packages are released separately. A release section is headed
   rulesets and repository settings as code.
 - Release workflow: per-package npm publishing through trusted publishing with
   provenance, gated by the `npm-publish` environment. See `docs/releasing.md`.
+
+## [create-botyard-app@0.0.1-alpha.0] - 2026-11-16
+
+### Added
+
+- Placeholder CLI that prints a "not ready yet" notice and exits non-zero. It
+  scaffolds nothing; this prerelease exists to validate the release pipeline
+  (trusted publishing, provenance and the GitHub release) end to end.
