@@ -6,6 +6,12 @@ packages:
 # Supply chain: do not install a dependency version until it has been public
 # for 3 days (most malicious releases are pulled within hours).
 minimumReleaseAge: 4320
+# Except our own packages, which release.yml publishes from this repository
+# with provenance: templates pin them, and a template must be able to use a
+# release on the day it ships.
+minimumReleaseAgeExclude:
+  - "@botyard/runtime"
+  - "@botyard/botpage"
 # Supply chain: no dependency may run install scripts unless listed here.
 onlyBuiltDependencies: []
 strictDepBuilds: true

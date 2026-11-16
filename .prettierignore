@@ -8,3 +8,7 @@ pnpm-lock.yaml
 tooling/eslint-config/base.js
 tooling/eslint-config/node.js
 tooling/eslint-config/react.js
+# The template's ESLint configs are links to tooling/eslint-config.
+templates/*/eslint/
+# npm writes these; keep them byte-identical to what npm generates.
+templates/*/package-lock.json

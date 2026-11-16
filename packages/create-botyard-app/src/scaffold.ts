@@ -148,7 +148,7 @@ async function planTemplate(templateDir: string, packageName: string): Promise<P
   return plan
 }
 
-/** The file's bytes, with the app's name filled in for package.json and botyard.json. */
+/** The file's bytes, with the app's name filled in for package.json, its lockfile and botyard.json. */
 async function fileData(
   source: string,
   rel: string,
@@ -157,6 +157,13 @@ async function fileData(
   if (rel === "package.json") {
     return renamed(source, (json) => {
       json["name"] = packageName
+    })
+  }
+  if (rel === "package-lock.json") {
+    return renamed(source, (json) => {
+      json["name"] = packageName
+      const root = isJsonObject(json["packages"]) ? json["packages"][""] : undefined
+      if (isJsonObject(root)) root["name"] = packageName
     })
   }
   if (rel === "botyard.json") {

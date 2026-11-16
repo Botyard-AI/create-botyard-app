@@ -23,6 +23,17 @@
     },
     "packages/ui": {
       "project": ["**/*.js"]
+    },
+    "templates/full-app": {
+      "entry": ["scripts/*.ts", "test/**/*.{ts,tsx}", "eslint/*.js"],
+      "project": [
+        "server/**/*.ts",
+        "scripts/**/*.ts",
+        "src/**/*.{ts,tsx}",
+        "test/**/*.{ts,tsx}",
+        "eslint/*.js"
+      ],
+      "ignoreDependencies": ["tailwindcss", "tw-animate-css"]
     }
   }
 }

@@ -1,0 +1,26 @@
+{
+  "identity": { "id": "bot-dev", "slug": "dev-bot", "org_id": "org-dev", "org_slug": "example" },
+  "tools": {
+    "list_org_members": {
+      "result": {
+        "total": 2,
+        "members": [
+          {
+            "user_id": "user-ada",
+            "role_id": "owner",
+            "user": { "user_id": "user-ada", "email": "ada@example.com", "name": "Ada Lovelace" }
+          },
+          {
+            "user_id": "user-grace",
+            "role_id": "member",
+            "user": {
+              "user_id": "user-grace",
+              "email": "grace@example.com",
+              "name": "Grace Hopper"
+            }
+          }
+        ]
+      }
+    }
+  }
+}
