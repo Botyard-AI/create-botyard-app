@@ -34,8 +34,11 @@ after any PR that changes these files.
    package that exists.
 3. **Trusted publishing.** For each package on npmjs.com: **Settings → Trusted
    Publisher → GitHub Actions**, repository `Botyard-AI/create-botyard-app`,
-   workflow `release.yml`, environment `npm-publish`. Then set **Publishing
-   access → Require two-factor authentication and disallow tokens**.
+   workflow `release.yml`, environment `npm-publish`. Under **Allowed actions**
+   tick **Allow `npm publish`** and leave **Allow `npm dist-tag`** unticked. Then
+   set **Publishing access → Require two-factor authentication and disallow
+   tokens**. `botyard` and `create-botyard` get no trusted publisher, only the
+   2FA and no-tokens setting. See [releasing.md](./releasing.md).
    No `NPM_TOKEN` secret is ever created.
 4. **Pull request access.** If the org has GitHub's option to limit who can open
    pull requests, set it to collaborators only. Otherwise external PRs are
