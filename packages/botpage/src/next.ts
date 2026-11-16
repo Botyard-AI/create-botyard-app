@@ -7,46 +7,50 @@
  * viewer override. Platform tool calls need Node APIs: run middleware with
  * `export const config = { runtime: "nodejs" }`.
  */
-import type { BotPage, MemberViewer, RequireMemberOptions, Viewer } from "./botpage.ts";
-import { guardFailure, guardFailureResponse } from "./responses.ts";
+import type { BotPage, MemberViewer, RequireMemberOptions, Viewer } from "./botpage.ts"
+import { guardFailure, guardFailureResponse } from "./responses.ts"
 
-export type RouteHandler<C, V> = (req: Request, context: C, viewer: V) => Response | Promise<Response>;
+export type RouteHandler<C, V> = (
+  req: Request,
+  context: C,
+  viewer: V
+) => Response | Promise<Response>
 
 /** Wrap a route handler so it receives the viewer, or `null` when none was identified. */
 export function withViewer<C>(
   botpage: BotPage,
-  handler: RouteHandler<C, Viewer | null>,
+  handler: RouteHandler<C, Viewer | null>
 ): (req: Request, context: C) => Promise<Response> {
   return async (req, context) => {
-    let viewer: Viewer | null;
+    let viewer: Viewer | null
     try {
-      viewer = await botpage.viewer(req);
+      viewer = await botpage.viewer(req)
     } catch (error) {
-      const failure = guardFailure(error);
-      if (failure === null) throw error;
-      return guardFailureResponse(failure);
+      const failure = guardFailure(error)
+      if (failure === null) throw error
+      return guardFailureResponse(failure)
     }
-    return handler(req, context, viewer);
-  };
+    return handler(req, context, viewer)
+  }
 }
 
 /** Wrap a route handler so it runs only for org members; others get JSON 401/403/503. */
 export function withMember<C>(
   botpage: BotPage,
   handler: RouteHandler<C, MemberViewer>,
-  options?: RequireMemberOptions,
+  options?: RequireMemberOptions
 ): (req: Request, context: C) => Promise<Response> {
   return async (req, context) => {
-    let viewer: MemberViewer;
+    let viewer: MemberViewer
     try {
-      viewer = await botpage.requireMember(req, options);
+      viewer = await botpage.requireMember(req, options)
     } catch (error) {
-      const failure = guardFailure(error);
-      if (failure === null) throw error;
-      return guardFailureResponse(failure);
+      const failure = guardFailure(error)
+      if (failure === null) throw error
+      return guardFailureResponse(failure)
     }
-    return handler(req, context, viewer);
-  };
+    return handler(req, context, viewer)
+  }
 }
 
 /**
@@ -62,16 +66,16 @@ export function withMember<C>(
  */
 export function memberGuard(
   botpage: BotPage,
-  options?: RequireMemberOptions,
+  options?: RequireMemberOptions
 ): (req: Request) => Promise<Response | undefined> {
   return async (req) => {
     try {
-      await botpage.requireMember(req, options);
-      return undefined;
+      await botpage.requireMember(req, options)
+      return undefined
     } catch (error) {
-      const failure = guardFailure(error);
-      if (failure === null) throw error;
-      return guardFailureResponse(failure);
+      const failure = guardFailure(error)
+      if (failure === null) throw error
+      return guardFailureResponse(failure)
     }
-  };
+  }
 }

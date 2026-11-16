@@ -1,47 +1,47 @@
-import { readHeader, type RequestLike } from "./headers.ts";
-import { isLoopbackAddress } from "./loopback.ts";
+import { readHeader, type RequestLike } from "./headers.ts"
+import { isLoopbackAddress } from "./loopback.ts"
 
 /**
  * What kind of principal is viewing the page. `unknown` means the identity
  * source cannot tell: `x-forwarded-user` carries an email or an id with no
  * type. A signed viewer assertion says `user` or `bot` explicitly.
  */
-export type ViewerType = "user" | "bot" | "unknown";
+export type ViewerType = "user" | "bot" | "unknown"
 
-interface IdentityBase {
-  readonly ok: true;
+type IdentityBase = {
+  readonly ok: true
   /**
    * The audience the credential was issued for (a Bot Page exposure id) when
    * the source verified one, else `null`. Unsigned sources never set it.
    */
-  readonly audience: string | null;
+  readonly audience: string | null
   /** Which identity source vouched for the subject, e.g. `trusted-forwarded-user`. */
-  readonly source: string;
+  readonly source: string
 }
 
 /** A person, or a principal the source cannot classify. */
-export interface PersonIdentity extends IdentityBase {
-  readonly viewerType: "user" | "unknown";
+export type PersonIdentity = {
+  readonly viewerType: "user" | "unknown"
   /** Stable subject: an email address or a Botyard user id. */
-  readonly subject: string;
+  readonly subject: string
   /** The viewer's email when the source knows it, else `null`. */
-  readonly email: string | null;
-}
+  readonly email: string | null
+} & IdentityBase
 
 /**
  * A Botyard bot viewing its own page (the only bot the proxy lets in).
  * Bots have no mailbox and are never org members.
  */
-export interface BotIdentity extends IdentityBase {
-  readonly viewerType: "bot";
+export type BotIdentity = {
+  readonly viewerType: "bot"
   /** The bot id; also the `subject`, as in a signed viewer assertion. */
-  readonly subject: string;
-  readonly botId: string;
-  readonly email: null;
-}
+  readonly subject: string
+  readonly botId: string
+  readonly email: null
+} & IdentityBase
 
 /** Who the request says the viewer is, before any directory lookup. */
-export type ViewerIdentity = PersonIdentity | BotIdentity;
+export type ViewerIdentity = PersonIdentity | BotIdentity
 
 /**
  * Why a source could not identify the viewer. A closed set, so guards and
@@ -70,15 +70,15 @@ export type IdentityFailureReason =
   | "wrong_type"
   | "replayed"
   | "untrusted_issuer"
-  | "key_unavailable";
+  | "key_unavailable"
 
-export interface IdentityFailure {
-  readonly ok: false;
-  readonly reason: IdentityFailureReason;
-  readonly source: string;
+export type IdentityFailure = {
+  readonly ok: false
+  readonly reason: IdentityFailureReason
+  readonly source: string
 }
 
-export type IdentityResult = ViewerIdentity | IdentityFailure;
+export type IdentityResult = ViewerIdentity | IdentityFailure
 
 /**
  * A strategy for identifying the viewer of a request.
@@ -92,37 +92,39 @@ export type IdentityResult = ViewerIdentity | IdentityFailure;
  * {@link IdentityFailure}, never an exception and never a fallback to a
  * weaker source. Throw only for programming errors.
  */
-export interface IdentitySource {
-  readonly name: string;
-  identify(req: RequestLike): IdentityResult | Promise<IdentityResult>;
+export type IdentitySource = {
+  readonly name: string
+  identify(req: RequestLike): IdentityResult | Promise<IdentityResult>
 }
 
 /** The only identity header the Bot Page proxy sets. Every other one is not real. */
-export const FORWARDED_USER_HEADER = "x-forwarded-user";
+export const FORWARDED_USER_HEADER = "x-forwarded-user"
 
-const MAX_SUBJECT_LENGTH = 320;
+const MAX_SUBJECT_LENGTH = 320
 // Printable, no whitespace, no comma: a comma means the header was repeated
-// and joined, and an email or user id never contains one.
-const SUBJECT_PATTERN = /^[^\s,\u0000-\u001f\u007f]+$/u;
+// and joined, and an email or user id never contains one. Matching control
+// characters is the point here, so no-control-regex does not apply.
+// eslint-disable-next-line no-control-regex
+const SUBJECT_PATTERN = /^[^\s,\u0000-\u001f\u007f]+$/u
 
 /**
  * Parse an `x-forwarded-user` value into a subject, or `null` when it is
  * repeated, oversized or malformed.
  */
 export function parseForwardedUser(raw: string | readonly string[]): string | null {
-  let value: string;
+  let value: string
   if (typeof raw === "string") {
-    value = raw;
+    value = raw
   } else {
-    if (raw.length !== 1) return null;
-    value = raw[0] ?? "";
+    if (raw.length !== 1) return null
+    value = raw[0] ?? ""
   }
-  const subject = value.trim();
-  if (subject.length === 0 || subject.length > MAX_SUBJECT_LENGTH) return null;
-  return SUBJECT_PATTERN.test(subject) ? subject : null;
+  const subject = value.trim()
+  if (subject.length === 0 || subject.length > MAX_SUBJECT_LENGTH) return null
+  return SUBJECT_PATTERN.test(subject) ? subject : null
 }
 
-export interface TrustedForwardedUserOptions {
+export type TrustedForwardedUserOptions = {
   /**
    * Refuse the header (`untrusted_peer`) when the request's TCP peer is known
    * and is not loopback. The Bot Page tunnel connects from inside the bot over
@@ -130,23 +132,23 @@ export interface TrustedForwardedUserOptions {
    * no effect when the request carries no socket (a Web `Request`).
    * Default `true`.
    */
-  requireLoopbackPeer?: boolean;
+  requireLoopbackPeer?: boolean
 }
 
-export const TRUSTED_FORWARDED_USER_SOURCE = "trusted-forwarded-user";
+export const TRUSTED_FORWARDED_USER_SOURCE = "trusted-forwarded-user"
 
 // Botyard signs bots in with a shadow address, `bot+<bot-id>@bots.botyard.internal`
 // (auth/src/spiffe-session.ts). It is not a mailbox, and the domain is
 // non-routable, so no human account can hold one.
-const BOT_SHADOW_ADDRESS = /^bot\+([a-z0-9][a-z0-9-]*)@bots\.botyard\.internal$/iu;
+const BOT_SHADOW_ADDRESS = /^bot\+([a-z0-9][a-z0-9-]*)@bots\.botyard\.internal$/iu
 
 /**
  * The bot id in a bot session's shadow address
  * (`bot+<bot-id>@bots.botyard.internal`), or `null` for any other subject.
  */
 export function parseBotShadowAddress(subject: string): string | null {
-  const match = BOT_SHADOW_ADDRESS.exec(subject);
-  return match?.[1]?.toLowerCase() ?? null;
+  const match = BOT_SHADOW_ADDRESS.exec(subject)
+  return match?.[1]?.toLowerCase() ?? null
 }
 
 /**
@@ -166,22 +168,30 @@ export function parseBotShadowAddress(subject: string): string | null {
  * email.
  */
 export function trustedForwardedUser(options: TrustedForwardedUserOptions = {}): IdentitySource {
-  const requireLoopbackPeer = options.requireLoopbackPeer ?? true;
-  const source = TRUSTED_FORWARDED_USER_SOURCE;
+  const requireLoopbackPeer = options.requireLoopbackPeer ?? true
+  const source = TRUSTED_FORWARDED_USER_SOURCE
   return {
     name: source,
     identify(req) {
-      const raw = readHeader(req, FORWARDED_USER_HEADER);
-      if (raw === null) return { ok: false, reason: "missing", source };
-      const peer = req.socket?.remoteAddress;
+      const raw = readHeader(req, FORWARDED_USER_HEADER)
+      if (raw === null) return { ok: false, reason: "missing", source }
+      const peer = req.socket?.remoteAddress
       if (requireLoopbackPeer && peer !== undefined && !isLoopbackAddress(peer)) {
-        return { ok: false, reason: "untrusted_peer", source };
+        return { ok: false, reason: "untrusted_peer", source }
       }
-      const subject = parseForwardedUser(raw);
-      if (subject === null) return { ok: false, reason: "malformed", source };
-      const botId = parseBotShadowAddress(subject);
+      const subject = parseForwardedUser(raw)
+      if (subject === null) return { ok: false, reason: "malformed", source }
+      const botId = parseBotShadowAddress(subject)
       if (botId !== null) {
-        return { ok: true, viewerType: "bot", subject: botId, botId, email: null, audience: null, source };
+        return {
+          ok: true,
+          viewerType: "bot",
+          subject: botId,
+          botId,
+          email: null,
+          audience: null,
+          source,
+        }
       }
       return {
         ok: true,
@@ -190,7 +200,7 @@ export function trustedForwardedUser(options: TrustedForwardedUserOptions = {}):
         email: subject.includes("@") ? subject : null,
         audience: null,
         source,
-      };
+      }
     },
-  };
+  }
 }

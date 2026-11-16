@@ -21,6 +21,10 @@ changelog when we land it.
 - Branch from `main`; open a PR. `main` accepts squash merges only, after CI
   (`ci`, `zizmor`) passes and a code owner approves the latest push.
 - User-visible changes add a line under `## [Unreleased]` in `CHANGELOG.md`.
+- Before pushing, run the checks CI runs: `pnpm run lint`, `pnpm run format:check`
+  (`pnpm run format` fixes it), `pnpm run typecheck`, `pnpm test`, `pnpm run build`
+  and `pnpm run knip`. The tooling follows the Botyard monorepo's TypeScript
+  standard; see `tooling/eslint-config/README.md`.
 - Third-party actions are pinned to full commit SHAs and must be on the
   allow-list in `scripts/apply-repo-settings.sh`.
 - Repository settings are code: change `.github/rulesets/` or

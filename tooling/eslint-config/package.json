@@ -1,0 +1,28 @@
+{
+  "name": "@botyard/eslint-config",
+  "version": "0.0.1",
+  "private": true,
+  "description": "ESLint flat configs for this repository and its templates. base, node and react are copied from the Botyard monorepo; zero-any is local.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./base": "./base.js",
+    "./node": "./node.js",
+    "./react": "./react.js",
+    "./javascript": "./javascript.js",
+    "./zero-any": "./zero-any.js"
+  },
+  "dependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "eslint-plugin-sonarjs": "^4.2.2",
+    "globals": "^15.15.0",
+    "typescript-eslint": "^8.72.2"
+  },
+  "peerDependencies": {
+    "eslint": "^9"
+  }
+}

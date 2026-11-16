@@ -1,0 +1,28 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/release/*.mjs"],
+      "project": ["*.{js,ts}", "scripts/**/*.mjs"]
+    },
+    "tooling/eslint-config": {
+      "entry": ["*.js"],
+      "project": ["*.js"]
+    },
+    "packages/runtime": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "packages/botpage": {
+      "entry": ["src/{index,node,hono,next}.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "packages/create-botyard-app": {
+      "entry": ["bin/*.js"],
+      "project": ["**/*.js"]
+    },
+    "packages/ui": {
+      "project": ["**/*.js"]
+    }
+  }
+}

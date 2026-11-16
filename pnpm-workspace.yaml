@@ -1,5 +1,6 @@
 packages:
   - packages/*
+  - tooling/*
   - templates/*
 
 # Supply chain: do not install a dependency version until it has been public

@@ -12,8 +12,8 @@
  * the mock: `createRuntime({ transport: "mock", mock: { tools: {...} } })`.
  */
 
-import { createRuntime, type Runtime } from "./runtime.ts";
-import type { CallOptions, Identity } from "./types.ts";
+import { createRuntime, type Runtime } from "./runtime.ts"
+import type { CallOptions, Identity } from "./types.ts"
 
 export {
   BotyardError,
@@ -24,7 +24,7 @@ export {
   UnknownToolError,
   type BotyardErrorOptions,
   type ToolErrorOptions,
-} from "./errors.ts";
+} from "./errors.ts"
 export {
   createRuntime,
   DEFAULT_TIMEOUT_MS,
@@ -32,7 +32,7 @@ export {
   selectTransport,
   type Runtime,
   type RuntimeOptions,
-} from "./runtime.ts";
+} from "./runtime.ts"
 export {
   createMockTransport,
   loadMockFixtures,
@@ -43,7 +43,7 @@ export {
   type MockIdentity,
   type MockOptions,
   type MockTransport,
-} from "./transports/mock.ts";
+} from "./transports/mock.ts"
 export type {
   CallOptions,
   Identity,
@@ -53,22 +53,26 @@ export type {
   ToolResult,
   Transport,
   TransportKind,
-} from "./types.ts";
+} from "./types.ts"
 
-let shared: Runtime | undefined;
+let shared: Runtime | undefined
 
 /** The process-wide runtime, created from `process.env` on first use. */
 export function defaultRuntime(): Runtime {
-  shared ??= createRuntime();
-  return shared;
+  shared ??= createRuntime()
+  return shared
 }
 
 /** Call a tool on the process-wide runtime. See {@link Runtime.call}. */
-export async function call<T = unknown>(tool: string, args?: Record<string, unknown>, opts?: CallOptions): Promise<T> {
-  return defaultRuntime().call<T>(tool, args, opts);
+export async function call<T = unknown>(
+  tool: string,
+  args?: Record<string, unknown>,
+  opts?: CallOptions
+): Promise<T> {
+  return defaultRuntime().call<T>(tool, args, opts)
 }
 
 /** The bot, its org and the chosen transport, from the process-wide runtime. */
 export async function getIdentity(opts?: CallOptions): Promise<Identity> {
-  return defaultRuntime().getIdentity(opts);
+  return defaultRuntime().getIdentity(opts)
 }

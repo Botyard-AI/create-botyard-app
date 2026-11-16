@@ -12,3 +12,8 @@ Guidance for AI agents (and humans) changing this repository.
   job, update `.github/rulesets/main.json` in the same PR.
 - Templates must never contain secrets, real customer data, or hardcoded org,
   bot or tool-prefix identifiers.
+- Code must pass the zero-`any` lint layer (`tooling/eslint-config/zero-any.js`).
+  Narrow `unknown` at real boundaries instead of casting. Never add a blanket or
+  file-wide disable; a line disable needs the reason on the line above it.
+- `tooling/eslint-config/{base,node,react}.js` are verbatim copies of the
+  monorepo's config. Change them only by re-syncing (see its README).
