@@ -23,8 +23,8 @@ Packages are released separately. A release section is headed
   `create-botyard-app <directory> [--template <name>] [--name <name>]` copies
   a template bundled in the package into a new or empty directory, then names
   the app in its `package.json` and `botyard.json`. It downloads nothing,
-  installs nothing, never overwrites a file and removes what it wrote when it
-  fails. The build bundles the repository's `templates/` into the package.
+  installs nothing, and never overwrites or deletes anything; if it fails
+  part-way it leaves what it created and says so. The build bundles the repository's `templates/` into the package.
 
 ### Changed
 

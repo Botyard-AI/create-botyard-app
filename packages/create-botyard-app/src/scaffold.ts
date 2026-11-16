@@ -1,4 +1,4 @@
-import { lstat, mkdir, open, readdir, readFile, rmdir, unlink } from "node:fs/promises"
+import { lstat, mkdir, open, readdir, readFile } from "node:fs/promises"
 import path from "node:path"
 import { pageName } from "./names.ts"
 
@@ -72,9 +72,9 @@ export async function listTemplates(templatesDir: string): Promise<string[]> {
  *   the path it creates. Files are written once, already named.
  * - Before reporting success it checks, by device and inode, that the target
  *   and every entry it created are still at their paths.
- * - On failure it removes only what it created, matched by inode: a file
- *   another process put in its place, or anything added to a directory it
- *   created, is left alone. Missing parent directories are left in place.
+ * - It never deletes anything. If it fails part-way, what it created stays,
+ *   and the error says so: removing a path after checking it is ours can
+ *   never be atomic, so cleanup is left to the user.
  *
  * Limit (Node has no `openat`): exclusive creation protects only the last
  * path segment. A concurrent process that can rename directories on the
@@ -101,10 +101,11 @@ export async function scaffold(options: ScaffoldOptions): Promise<void> {
   await hooks.beforeTarget?.()
 
   const created: Created[] = []
+  let madeTarget = false
   try {
     let target = await createDir(targetDir)
     if (target === null) target = await checkTarget(targetDir, false)
-    else created.push(target)
+    else madeTarget = true
     if (target === null) throw new ScaffoldError(`${targetDir} disappeared while scaffolding.`)
 
     for (const entry of plan) {
@@ -115,8 +116,7 @@ export async function scaffold(options: ScaffoldOptions): Promise<void> {
     }
     await verify([target, ...created], targetDir)
   } catch (err) {
-    await rollBack(created)
-    throw asScaffoldError(err, targetDir)
+    throw withPartialNote(err, targetDir, madeTarget || created.length > 0)
   }
 }
 
@@ -212,7 +212,7 @@ async function createDirOrFail(dir: string): Promise<Created> {
   return created
 }
 
-/** Creates and writes a file, recording it in `created` before writing, so a failed write is rolled back. */
+/** Creates and writes a file, recording it in `created` before writing, so a partial file is reported. */
 async function createFile(
   file: string,
   data: Buffer | string,
@@ -254,30 +254,24 @@ async function verify(expected: readonly Created[], targetDir: string): Promise<
     if (!same) {
       throw new ScaffoldError(
         `${targetDir} changed while scaffolding: ${item.file} is no longer what was created. ` +
-          "Nothing was overwritten, but some files may have been created where it pointed."
+          "Some files may have been created where it pointed."
       )
     }
   }
 }
 
-/** Removes what this run created, newest first, while it is still the same inode. */
-async function rollBack(created: readonly Created[]): Promise<void> {
-  for (const item of [...created].reverse()) {
-    try {
-      const now = await lstat(item.file)
-      if (now.dev !== item.dev || now.ino !== item.ino) continue
-      // rmdir only removes an empty directory, so another writer's files survive.
-      await (item.dir ? rmdir(item.file) : unlink(item.file))
-    } catch {
-      // Gone already, or not empty: leave it.
-    }
-  }
-}
-
-function asScaffoldError(err: unknown, targetDir: string): Error {
-  if (err instanceof ScaffoldError) return err
+/**
+ * The error to report for a failed run. When it created something, the
+ * message says it was left in place and the target must be removed by hand.
+ */
+function withPartialNote(err: unknown, targetDir: string, createdSomething: boolean): Error {
+  const note = createdSomething
+    ? ` Nothing was overwritten or deleted, but ${targetDir} now holds a partial app: ` +
+      "delete it before trying again."
+    : ""
+  if (err instanceof ScaffoldError) return new ScaffoldError(`${err.message}${note}`)
   if (err instanceof Error && "code" in err) {
-    return new ScaffoldError(`Could not create the app in ${targetDir}: ${err.message}`)
+    return new ScaffoldError(`Could not create the app in ${targetDir}: ${err.message}.${note}`)
   }
   return err instanceof Error ? err : new Error(String(err))
 }

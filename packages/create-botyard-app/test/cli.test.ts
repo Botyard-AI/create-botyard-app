@@ -127,7 +127,7 @@ describe("refusals", () => {
     expect(result.stderr).not.toContain("--name")
   })
 
-  test("a template with a symlink fails and removes everything it wrote", async () => {
+  test("a template with a symlink fails before creating anything", async () => {
     const cwd = await tempDir()
     const templates = path.join(cwd, "templates")
     await cp(path.join(fixtureTemplates, "basic"), path.join(templates, "linked"), {

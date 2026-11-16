@@ -4,7 +4,7 @@ import { mkdir, readdir, readFile, rename, symlink, unlink, writeFile } from "no
 import path from "node:path"
 import { describe, expect, test } from "vitest"
 import { scaffold, ScaffoldError } from "../src/scaffold.ts"
-import { fixtureTemplates, listFiles, tempDir } from "./helpers.ts"
+import { fixtureTemplates, listFiles, readJson, tempDir } from "./helpers.ts"
 
 const base = { templatesDir: fixtureTemplates, template: "basic", packageName: "my-app" }
 
@@ -20,80 +20,95 @@ function failAt(n: number, meddle: (file: string) => Promise<void> = async () =>
   }
 }
 
-describe("rollback", () => {
-  test("removes everything it created, including the target", async () => {
+describe("on failure", () => {
+  // Plan order: .gitignore, .npmrc, botyard.json, package.json, src/, src/index.js
+  test("leaves what it created, and says so", async () => {
     const cwd = await tempDir()
     const targetDir = path.join(cwd, "my-app")
-    await expect(
-      scaffold({ ...base, targetDir, hooks: { afterCreate: failAt(4) } })
-    ).rejects.toThrow("boom")
-    expect(await readdir(cwd)).toEqual([])
+    const beforeWrite = async (file: string): Promise<void> => {
+      if (file.endsWith("package.json")) throw Object.assign(new Error("EFBIG"), { code: "EFBIG" })
+    }
+    const error = await scaffold({ ...base, targetDir, hooks: { beforeWrite } }).catch(
+      (err: unknown) => err
+    )
+    expect(error).toBeInstanceOf(ScaffoldError)
+    expect(String(error)).toContain(
+      `Nothing was overwritten or deleted, but ${targetDir} now holds a partial app`
+    )
+    // The partial package.json is reported, not removed.
+    expect(await listFiles(targetDir)).toEqual([
+      ".gitignore",
+      ".npmrc",
+      "botyard.json",
+      "package.json",
+    ])
   })
 
-  test("keeps an empty target it was given", async () => {
+  test("an empty target it was given is left as it is", async () => {
     const cwd = await tempDir()
     const targetDir = path.join(cwd, "my-app")
     await mkdir(targetDir)
     await expect(
       scaffold({ ...base, targetDir, hooks: { afterCreate: failAt(4) } })
     ).rejects.toThrow("boom")
-    expect(await readdir(targetDir)).toEqual([])
+    expect(await listFiles(targetDir)).toEqual([
+      ".gitignore",
+      ".npmrc",
+      "botyard.json",
+      "package.json",
+    ])
   })
 
-  test("keeps files another process added, and the directories holding them", async () => {
+  test("a failure before anything is created does not mention a partial app", async () => {
+    const cwd = await tempDir()
+    const targetDir = path.join(cwd, "my-app")
+    const beforeTarget = async (): Promise<void> => {
+      await writeFile(targetDir, "theirs")
+    }
+    const error = await scaffold({ ...base, targetDir, hooks: { beforeTarget } }).catch(
+      (err: unknown) => err
+    )
+    expect(String(error)).toContain("exists and is not a directory")
+    expect(String(error)).not.toContain("partial app")
+    expect(await readFile(targetDir, "utf8")).toBe("theirs")
+  })
+
+  // The interval Rivet found in rollback: ours checked, then another process
+  // puts its file in place before the delete. There is no delete any more, so
+  // whatever is swapped in at the moment of failure survives, and so does ours.
+  test("a file swapped in at the moment of failure is never deleted", async () => {
+    const cwd = await tempDir()
+    const targetDir = path.join(cwd, "my-app")
+    const meddle = async (): Promise<void> => {
+      await rename(path.join(targetDir, "botyard.json"), path.join(cwd, "ours-aside.json"))
+      await writeFile(path.join(targetDir, "botyard.json"), "theirs")
+    }
+    await expect(
+      scaffold({ ...base, targetDir, hooks: { afterCreate: failAt(4, meddle) } })
+    ).rejects.toThrow("boom")
+    expect(await readFile(path.join(targetDir, "botyard.json"), "utf8")).toBe("theirs")
+    expect(await readJson(path.join(cwd, "ours-aside.json"))).toMatchObject({ name: "my-app" })
+    expect(await listFiles(targetDir)).toEqual([
+      ".gitignore",
+      ".npmrc",
+      "botyard.json",
+      "package.json",
+    ])
+  })
+
+  test("files another process added are kept", async () => {
     const cwd = await tempDir()
     const targetDir = path.join(cwd, "my-app")
     const meddle = async (): Promise<void> => {
       await writeFile(path.join(targetDir, "theirs.txt"), "theirs")
       await writeFile(path.join(targetDir, "src", "theirs.js"), "theirs")
     }
-    // Plan order: .gitignore, .npmrc, botyard.json, package.json, src/, src/index.js
     await expect(
       scaffold({ ...base, targetDir, hooks: { afterCreate: failAt(6, meddle) } })
     ).rejects.toThrow("boom")
-    expect(await listFiles(targetDir)).toEqual(["src/theirs.js", "theirs.txt"])
-  })
-
-  test("keeps a file another process put in place of one of ours", async () => {
-    const cwd = await tempDir()
-    const targetDir = path.join(cwd, "my-app")
-    const meddle = async (): Promise<void> => {
-      const replacement = path.join(cwd, "replacement")
-      await writeFile(replacement, "theirs")
-      await rename(replacement, path.join(targetDir, "botyard.json"))
-    }
-    await expect(
-      scaffold({ ...base, targetDir, hooks: { afterCreate: failAt(4, meddle) } })
-    ).rejects.toThrow("boom")
-    expect(await listFiles(targetDir)).toEqual(["botyard.json"])
-    expect(await readFile(path.join(targetDir, "botyard.json"), "utf8")).toBe("theirs")
-  })
-
-  test("keeps sibling directories in a parent it created", async () => {
-    const cwd = await tempDir()
-    const targetDir = path.join(cwd, "apps", "my-app")
-    const meddle = async (): Promise<void> => {
-      await mkdir(path.join(cwd, "apps", "other"))
-      await writeFile(path.join(cwd, "apps", "other", "x"), "theirs")
-    }
-    await expect(
-      scaffold({ ...base, targetDir, hooks: { afterCreate: failAt(1, meddle) } })
-    ).rejects.toThrow("boom")
-    expect(await listFiles(cwd)).toEqual(["apps/other/x"])
-  })
-})
-
-describe("partial writes", () => {
-  test("a file whose write fails is removed with the rest", async () => {
-    const cwd = await tempDir()
-    const targetDir = path.join(cwd, "my-app")
-    const beforeWrite = async (file: string): Promise<void> => {
-      if (file.endsWith("package.json")) throw Object.assign(new Error("EFBIG"), { code: "EFBIG" })
-    }
-    await expect(scaffold({ ...base, targetDir, hooks: { beforeWrite } })).rejects.toThrow(
-      ScaffoldError
-    )
-    expect(await readdir(cwd)).toEqual([])
+    const files = await listFiles(targetDir)
+    expect(files).toContain("theirs.txt")
+    expect(files).toContain("src/theirs.js")
   })
 })
 
@@ -111,9 +126,9 @@ describe("swapped ancestors", () => {
     await expect(scaffold({ ...base, targetDir, hooks: { afterCreate: swap } })).rejects.toThrow(
       "changed while scaffolding"
     )
-    // What it wrote through the link is rolled back by inode; the moved
-    // directory keeps the one file written before the swap.
-    expect(await listFiles(elsewhere)).toEqual([])
+    // Nothing is deleted: what went through the link stays where it pointed,
+    // and the moved directory keeps the file written before the swap.
+    expect(await listFiles(elsewhere)).toContain("package.json")
     expect(await listFiles(path.join(cwd, "moved"))).toEqual([".gitignore"])
   })
 
@@ -130,7 +145,7 @@ describe("swapped ancestors", () => {
     await expect(scaffold({ ...base, targetDir, hooks: { afterCreate: swap } })).rejects.toThrow(
       "changed while scaffolding"
     )
-    expect(await listFiles(elsewhere)).toEqual([])
+    expect(await listFiles(elsewhere)).toEqual(["index.js"])
   })
 
   // The documented limit: a swap that is reverted before a later failure can
@@ -206,8 +221,12 @@ describe("concurrent writers", () => {
     expect(error).toBeInstanceOf(ScaffoldError)
     expect(String(error)).toContain("botyard.json appeared while scaffolding")
     expect(await readFile(victim, "utf8")).toBe("untouched")
-    // Ours removed; the planted link is not ours and stays.
-    expect(await readdir(targetDir)).toEqual(["botyard.json"])
+    // Ours stay; the planted link is untouched.
+    expect((await readdir(targetDir)).sort((a, b) => a.localeCompare(b))).toEqual([
+      ".gitignore",
+      ".npmrc",
+      "botyard.json",
+    ])
   })
 
   test("a file planted where it is about to write is never overwritten", async () => {
@@ -221,7 +240,14 @@ describe("concurrent writers", () => {
     await expect(scaffold({ ...base, targetDir, hooks: { afterCreate: plant } })).rejects.toThrow(
       "package.json appeared while scaffolding"
     )
-    expect(await listFiles(targetDir)).toEqual(["package.json"])
     expect(await readFile(path.join(targetDir, "package.json"), "utf8")).toBe("theirs")
   })
+})
+
+// Removing a path after checking it is ours can never be atomic, so the
+// scaffolder must have no way to delete anything at all.
+test("the scaffolder has no delete or rename call", async () => {
+  const source = await readFile(new URL("../src/scaffold.ts", import.meta.url), "utf8")
+  expect(source).not.toMatch(/\b(unlink|rmdir|rm|rename|truncate|ftruncate)\s*\(/)
+  expect(source).not.toMatch(/\b(unlink|rmdir|rm|rename|truncate)\b.*from "node:fs/)
 })
