@@ -1,8 +1,6 @@
 import type { ApproverRole, QuoteStatus } from "../../shared/types.ts"
 
-const money = new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR" })
-
-export const eur = (n: number): string => money.format(n)
+export { eur } from "../../shared/money.ts"
 
 export const STATUS_LABEL: Readonly<Record<QuoteStatus, string>> = {
   draft: "Draft",
