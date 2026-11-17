@@ -1,5 +1,10 @@
 {
-  "identity": { "id": "bot-dev", "slug": "dev-bot", "org_id": "org-dev", "org_slug": "example" },
+  "identity": {
+    "id": "bot-dev",
+    "slug": "dev-bot",
+    "org_id": "org-dev",
+    "org_slug": "example"
+  },
   "tools": {
     "list_org_members": {
       "result": {
@@ -8,7 +13,11 @@
           {
             "user_id": "user-ada",
             "role_id": "owner",
-            "user": { "user_id": "user-ada", "email": "ada@example.com", "name": "Ada Lovelace" }
+            "user": {
+              "user_id": "user-ada",
+              "email": "ada@example.com",
+              "name": "Ada Lovelace"
+            }
           },
           {
             "user_id": "user-grace",
@@ -18,6 +27,31 @@
               "email": "grace@example.com",
               "name": "Grace Hopper"
             }
+          }
+        ]
+      }
+    },
+    "list_org_bots": {
+      "result": {
+        "total": 2,
+        "bots": [
+          {
+            "id": "bot-reviewer",
+            "name": "Reviewer Bot",
+            "slug": "reviewer-bot",
+            "tier": "starter",
+            "desired_state": "running",
+            "observed_state": "running",
+            "health_status": "healthy"
+          },
+          {
+            "id": "bot-helper",
+            "name": "Helper Bot",
+            "slug": "helper-bot",
+            "tier": "starter",
+            "desired_state": "running",
+            "observed_state": "running",
+            "health_status": "healthy"
           }
         ]
       }

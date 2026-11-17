@@ -71,3 +71,13 @@ export type ResetResult = Wire<typeof P.parseResetResult>
 
 /** The builder's input: a new quote, or the new contents of a draft. */
 export type QuoteInput = Wire<typeof P.parseQuoteInput>
+
+// ---------- settings ----------
+
+/** Who approves. Kept apart from the quotes, so "Reset demo" leaves it alone. */
+export type DeskSettings = Wire<typeof P.parseSettings>
+/** GET /api/settings. */
+export type SettingsView = Wire<typeof P.parseSettingsView>
+/** A bot in the org, for the reviewer picker (GET /api/bots). */
+export type BotList = Wire<typeof P.parseBotList>
+export type BotOption = BotList["bots"][number]

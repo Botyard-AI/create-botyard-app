@@ -1,7 +1,8 @@
 import { FileSignature, Mail, Pencil } from "lucide-react"
 import { useState } from "react"
-import type { QuoteView } from "../../../shared/types.ts"
+import type { QuoteView, SettingsView } from "../../../shared/types.ts"
 import { ApprovalsPanel } from "@/components/approvals-panel"
+import { CommentBox } from "@/components/comment-box"
 import { PricingSummary } from "@/components/pricing-summary"
 import { QuoteHistory } from "@/components/quote-history"
 import { StatusBadge } from "@/components/status-badge"
@@ -14,12 +15,13 @@ const tone = { muted: "muted", info: "muted", warning: "warn", success: "ok" } a
 
 type Props = Readonly<{
   quote: QuoteView
+  settings: SettingsView | null
   onChanged: (quote: QuoteView) => void
   onEdit: (id: string) => void
 }>
 
 /** One quote: where it stands, its numbers, approvals and history. */
-export function QuoteDetail({ quote, onChanged, onEdit }: Props) {
+export function QuoteDetail({ quote, settings, onChanged, onEdit }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -128,10 +130,11 @@ export function QuoteDetail({ quote, onChanged, onEdit }: Props) {
           )}
         </div>
         <div className="grid content-start gap-4">
-          <ApprovalsPanel quote={quote} />
+          <ApprovalsPanel quote={quote} settings={settings} onChanged={onChanged} />
           <Panel title="History">
-            <div className="p-4">
+            <div className="grid gap-4 p-4">
               <QuoteHistory events={quote.events} />
+              <CommentBox quote={quote} onAdded={onChanged} />
             </div>
           </Panel>
         </div>

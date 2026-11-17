@@ -1,8 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { BotPage } from "@botyard/botpage"
 import { withViewer } from "@botyard/botpage/node"
+import type { ToolCaller } from "@botyard/runtime"
+import { approvalRoutes } from "./approvals.ts"
 import { match, sendError, sendJson, type Route } from "./http.ts"
 import type { QuoteDesk } from "./quotes/desk.ts"
+import type { SettingsStore } from "./quotes/settings.ts"
 import { quoteRoutes } from "./routes.ts"
 import { serveStatic } from "./static.ts"
 import type { StaticFiles } from "./static.ts"
@@ -12,8 +15,12 @@ export type Middleware = (req: IncomingMessage, res: ServerResponse, next: () =>
 
 export type AppOptions = {
   botpage: BotPage
+  /** Calls Botyard platform tools (@botyard/runtime). */
+  tools: ToolCaller
   /** The quotes this app serves. */
   desk: QuoteDesk
+  /** Who approves. */
+  settings: SettingsStore
   /** Built UI to serve (production), from `loadStatic`. */
   staticFiles?: StaticFiles
   /** Serves the UI in development (Vite). Used when `staticFiles` is not set. */
@@ -51,7 +58,14 @@ async function handleApi(
   }
 }
 
-export function createApp({ botpage, desk, staticFiles, ui }: AppOptions): Handler {
+export function createApp({
+  botpage,
+  tools,
+  desk,
+  settings,
+  staticFiles,
+  ui,
+}: AppOptions): Handler {
   const api: Route[] = [
     {
       method: "GET",
@@ -68,7 +82,8 @@ export function createApp({ botpage, desk, staticFiles, ui }: AppOptions): Handl
         sendJson(res, 200, { viewer })
       }),
     },
-    ...quoteRoutes(desk, botpage),
+    ...quoteRoutes(desk, { botpage, tools }),
+    ...approvalRoutes({ desk, settings, botpage, tools }),
   ]
 
   return async (req, res) => {

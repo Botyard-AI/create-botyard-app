@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
-import type { QuoteSummary, QuoteView } from "../../../shared/types.ts"
+import type { QuoteSummary, QuoteView, SettingsView } from "../../../shared/types.ts"
 import { Notice, Panel } from "@/components/ui/bits"
-import { getQuote, listQuotes } from "@/lib/quotes-api"
+import { getQuote, getSettings, listQuotes } from "@/lib/quotes-api"
 import { QuoteDetail } from "./quote-detail"
 import { QuoteList } from "./quote-list"
 
@@ -25,6 +25,20 @@ export function QuotesPage({
   const [list, setList] = useState<Loaded<readonly QuoteSummary[]>>({ state: "loading" })
   const [quote, setQuote] = useState<Loaded<QuoteView> | null>(null)
   const [tick, setTick] = useState(0)
+  // Who may decide what. Without it nobody gets decision buttons; the server checks anyway.
+  const [settings, setSettings] = useState<SettingsView | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    getSettings(controller.signal)
+      .then(setSettings)
+      .catch(() => {
+        // Leave the buttons out; the quotes still show.
+      })
+    return () => {
+      controller.abort()
+    }
+  }, [])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -96,6 +110,7 @@ export function QuotesPage({
         {quote?.state === "ready" ? (
           <QuoteDetail
             quote={quote.value}
+            settings={settings}
             onEdit={onEdit}
             onChanged={(value) => {
               setQuote({ state: "ready", value })

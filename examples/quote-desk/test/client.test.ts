@@ -4,6 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { API } from "../shared/api.ts"
 import {
   ApiError,
+  addComment,
+  decide,
+  getSettings,
+  listBots,
   call,
   getQuarter,
   getQuote,
@@ -75,6 +79,22 @@ describe("the client", () => {
       })
     ).rejects.toThrow(ApiError)
     expect(sent.at(-1)).toBe("POST /api/quotes")
+  })
+})
+
+describe("the approvals client", () => {
+  it("reads the settings and the org's bots", async () => {
+    const sent = await serveClient()
+    expect((await getSettings()).settings.approvers).toEqual({ finance: [], business: [] })
+    expect((await listBots()).map((b) => b.slug)).toContain("reviewer-bot")
+    expect(sent).toEqual(["GET /api/settings", "GET /api/bots"])
+  })
+
+  it("sends decisions and comments to the quote's path", async () => {
+    const sent = await serveClient()
+    await expect(decide("Q-NOPE", "finance", "approve", "")).rejects.toThrow(ApiError)
+    await expect(addComment("Q-NOPE", "hello")).rejects.toMatchObject({ status: 404 })
+    expect(sent).toEqual(["POST /api/quotes/Q-NOPE/decide", "POST /api/quotes/Q-NOPE/comments"])
   })
 })
 

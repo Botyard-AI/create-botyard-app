@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
+import { BotPageAuthError, BotPageToolError } from "@botyard/botpage"
 import { DeskError } from "./quotes/desk.ts"
 import { ParseError } from "./quotes/parse.ts"
 
@@ -57,6 +58,15 @@ export function sendError(res: ServerResponse, err: unknown): boolean {
   }
   if (err instanceof ParseError) {
     sendJson(res, 400, { error: err.message })
+    return true
+  }
+  // A re-check inside a handler (see recheck in routes.ts) refused the viewer.
+  if (err instanceof BotPageAuthError) {
+    sendJson(res, err.status, { error: err.code })
+    return true
+  }
+  if (err instanceof BotPageToolError) {
+    sendJson(res, 503, { error: "directory_unavailable" })
     return true
   }
   return false

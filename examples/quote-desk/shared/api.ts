@@ -6,6 +6,9 @@
 // anywhere else, and the types come from the parsers.
 import {
   noBody,
+  parseBotList,
+  parseCommentInput,
+  parseDecisionInput,
   parseMemberList,
   parseMeta,
   parsePricing,
@@ -15,6 +18,9 @@ import {
   parseQuoteList,
   parseQuoteView,
   parseResetResult,
+  parseSavedSettings,
+  parseSettingsInput,
+  parseSettingsView,
 } from "./parse.ts"
 
 export type Method = "GET" | "POST" | "PUT"
@@ -98,6 +104,14 @@ export const API = {
   signQuote: action("/api/quotes/:id/sign", parseQuoteView),
   quarter: { ...get("/api/quarter", parseQuarter), query: parseQuarterQuery },
   reset: action("/api/reset", parseResetResult),
+  decideQuote: post("/api/quotes/:id/decide", parseDecisionInput, parseQuoteView),
+  commentQuote: post("/api/quotes/:id/comments", parseCommentInput, parseQuoteView),
+  settings: get("/api/settings", parseSettingsView),
+  saveSettings: {
+    ...post("/api/settings", parseSettingsInput, parseSavedSettings),
+    method: "PUT" as const,
+  },
+  bots: get("/api/bots", parseBotList),
 } as const satisfies Record<string, Endpoint>
 
 // ---------- path parameters, typed from the path ----------

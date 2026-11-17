@@ -7,6 +7,7 @@ import { ViewerBadge, type ViewerState } from "@/components/viewer-badge"
 import { BuildPage } from "@/features/build/build-page"
 import { QuarterClose } from "@/features/quarter-close"
 import { QuotesPage } from "@/features/quotes/quotes-page"
+import { SettingsPage } from "@/features/settings/settings-page"
 import { fetchViewer } from "@/lib/api"
 import { getMeta, resetDemo } from "@/lib/quotes-api"
 import { href, useRoute, type Route } from "@/lib/route"
@@ -16,6 +17,7 @@ const TABS: readonly { route: Route; label: string }[] = [
   { route: { tab: "build", quoteId: null }, label: "Build quote" },
   { route: { tab: "quotes", quoteId: null }, label: "Quotes & approvals" },
   { route: { tab: "quarter" }, label: "Quarter close" },
+  { route: { tab: "settings" }, label: "Settings" },
 ]
 
 type MetaState =
@@ -157,6 +159,7 @@ export default function App() {
           />
         ) : null}
         {meta.state === "ready" && route.tab === "quarter" ? <QuarterClose /> : null}
+        {meta.state === "ready" && route.tab === "settings" ? <SettingsPage /> : null}
       </main>
     </div>
   )

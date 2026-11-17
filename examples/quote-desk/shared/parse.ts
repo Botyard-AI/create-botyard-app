@@ -9,11 +9,13 @@ import {
   DECISIONS,
   EVENT_TYPES,
   FINANCE_ROLES,
+  HUMAN_ROLES,
   NEXT_ACTORS,
   STANDINGS,
   STATUSES,
   TONES,
   type ApproverRole,
+  type HumanRole,
   type QuoteStatus,
 } from "./domain.ts"
 import {
@@ -403,15 +405,7 @@ export function parseQuarter(value: unknown, at = "quarter") {
 
 /** GET /api/members. */
 export function parseMemberList(value: unknown, at = "body") {
-  const members = items(record(value, at), "members", at, 100_000, (v, p) => {
-    const m = record(v, p)
-    return {
-      user_id: str(m, "user_id", p),
-      name: str(m, "name", p),
-      email: strOrNull(m, "email", p, 320),
-    }
-  })
-  return { members }
+  return { members: items(record(value, at), "members", at, 100_000, memberOption) }
 }
 
 /** POST /api/reset. */
@@ -457,4 +451,98 @@ export function parseQuoteInput(value: unknown) {
     order_discount_reason:
       r["order_discount_reason"] === undefined ? "" : str(r, "order_discount_reason", "body"),
   }
+}
+
+// ---------- settings ----------
+
+/** At most this many approvers per role. */
+export const MAX_APPROVERS = 20
+const SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/
+/** Botyard user ids: opaque, but never empty, long or full of odd characters. */
+const USER_ID = /^[A-Za-z0-9_-]{1,80}$/
+
+function approverIds(r: Rec, role: HumanRole, at: string) {
+  const ids = strings(r, role, at, MAX_APPROVERS)
+  ids.forEach((id, i) => {
+    if (!USER_ID.test(id)) throw new ParseError(`${at}.${role}[${String(i)}]: not a user id`)
+  })
+  const dupe = ids.find((id, i) => ids.indexOf(id) !== i)
+  if (dupe !== undefined) throw new ParseError(`${at}.${role}: ${dupe} is listed twice`)
+  return ids
+}
+
+/**
+ * Who approves (data/settings.json, and PUT /api/settings). Approvers are org
+ * members by user id, which never changes; an email can move to someone else.
+ */
+export function parseSettings(value: unknown, at = "settings") {
+  const r = record(value, at)
+  const reviewer = strOrNull(r, "reviewer_bot", at, 63)
+  if (reviewer !== null && !SLUG.test(reviewer))
+    throw new ParseError(`${at}.reviewer_bot: not a bot slug`)
+  const a = record(r["approvers"], `${at}.approvers`)
+  return {
+    /** Slug of the bot that reviews quotes for finance, or null until one is picked. */
+    reviewer_bot: reviewer,
+    /** User ids of the members who may decide for each role. */
+    approvers: {
+      finance: approverIds(a, "finance", `${at}.approvers`),
+      business: approverIds(a, "business", `${at}.approvers`),
+    },
+  }
+}
+
+function memberOption(v: unknown, p: string) {
+  const m = record(v, p)
+  return {
+    user_id: str(m, "user_id", p),
+    name: str(m, "name", p),
+    email: strOrNull(m, "email", p, 320),
+  }
+}
+
+/** GET /api/settings: the settings, and what the viewer may do with them. */
+export function parseSettingsView(value: unknown) {
+  const r = record(value, "response")
+  return {
+    settings: parseSettings(r["settings"], "response.settings"),
+    /** Org owners and admins may change the settings. */
+    can_edit: bool(r, "can_edit", "response"),
+    /** The roles the viewer may decide for. */
+    my_roles: items(r, "my_roles", "response", HUMAN_ROLES.length, (v, p) =>
+      oneOf({ role: v }, "role", HUMAN_ROLES, p)
+    ),
+    /** The configured approvers still in the org, to show by name. */
+    people: items(r, "people", "response", 2 * MAX_APPROVERS, memberOption),
+  }
+}
+
+/** GET /api/bots: the org's bots, for the reviewer picker. */
+export function parseBotList(value: unknown) {
+  const bots = items(record(value, "response"), "bots", "response", 1000, (v, p) => {
+    const b = record(v, p)
+    return { slug: str(b, "slug", p, 63), name: str(b, "name", p) }
+  })
+  return { bots }
+}
+
+/** PUT /api/settings: the settings to save. */
+export const parseSettingsInput = (value: unknown) => parseSettings(value, "body")
+
+/** PUT /api/settings answers with the saved settings. */
+export const parseSavedSettings = (value: unknown) => parseSettings(value, "response")
+
+/** POST /api/quotes/:id/decide. */
+export function parseDecisionInput(value: unknown) {
+  const r = record(value, "body")
+  return {
+    role: oneOf(r, "role", HUMAN_ROLES, "body"),
+    decision: oneOf(r, "decision", DECISIONS, "body"),
+    note: str(r, "note", "body", 2000),
+  }
+}
+
+/** POST /api/quotes/:id/comments. */
+export function parseCommentInput(value: unknown) {
+  return { text: str(record(value, "body"), "text", "body", 2000) }
 }

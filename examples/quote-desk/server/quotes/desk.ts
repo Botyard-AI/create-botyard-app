@@ -60,7 +60,7 @@ export type DeskOptions = {
   now?: () => Date
 }
 
-const ROLE_LABEL: Readonly<Record<ApproverRole, string>> = {
+export const ROLE_LABEL: Readonly<Record<ApproverRole, string>> = {
   bot_review: "the reviewer bot",
   finance: "finance",
   business: "business",
