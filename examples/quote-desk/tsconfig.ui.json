@@ -23,10 +23,11 @@
     "useUnknownInCatchVariables": true,
 
     "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "test/ui"]
+  "include": ["src", "shared", "test/ui"]
 }

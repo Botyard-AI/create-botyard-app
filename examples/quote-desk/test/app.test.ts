@@ -43,23 +43,22 @@ describe("/api/me", () => {
   })
 })
 
-describe("/api/hello (members only)", () => {
-  test("greets a member", async () => {
+describe("members-only routes", () => {
+  test("serve a member", async () => {
     const base = await startApp()
-    const res = await fetch(`${base}/api/hello`, asViewer("ada@example.com"))
+    const res = await fetch(`${base}/api/meta`, asViewer("ada@example.com"))
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ message: "Hello, Ada Lovelace!" })
   })
 
-  test("refuses someone outside the org", async () => {
+  test("refuse someone outside the org", async () => {
     const base = await startApp()
-    const res = await fetch(`${base}/api/hello`, asViewer("mallory@example.org"))
+    const res = await fetch(`${base}/api/meta`, asViewer("mallory@example.org"))
     expect(res.status).toBe(403)
   })
 
-  test("refuses an anonymous request", async () => {
+  test("refuse an anonymous request", async () => {
     const base = await startApp()
-    const res = await fetch(`${base}/api/hello`)
+    const res = await fetch(`${base}/api/quotes`)
     expect(res.status).toBe(401)
   })
 })

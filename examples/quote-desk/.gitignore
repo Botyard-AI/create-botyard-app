@@ -5,3 +5,6 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# Quote desk state (quotes you create while running the app).
+data/

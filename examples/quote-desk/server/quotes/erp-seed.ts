@@ -1,0 +1,341 @@
+// Fictional seed data: every company, person and number is invented, and
+// every email address is on the reserved .invalid domain. Generated from the
+// original demo's JSON seed.
+import type { Erp } from "../../shared/types.ts"
+
+export const ERP_SEED: Erp = {
+  as_of: "2026-11-10",
+  settings: {
+    margin_floor_pct: 25,
+    discount_escalation_pct: 10,
+    sign_by_buffer_working_days: 5,
+  },
+  products: [
+    {
+      sku: "PPR-A4-80",
+      name: "Copy paper A4, 80 gsm, 5 x 500 sheets",
+      uom: "carton",
+      list_price_eur: 21.9,
+      unit_cost_eur: 14.2,
+      supplier_lead_days: 10,
+    },
+    {
+      sku: "PPR-LTR-20",
+      name: "Copy paper Letter, 20 lb, 5 x 500 sheets",
+      uom: "carton",
+      list_price_eur: 23.5,
+      unit_cost_eur: 15.1,
+      supplier_lead_days: 10,
+    },
+    {
+      sku: "PPR-PREM-90",
+      name: "Premium bond paper A4, 90 gsm, 500 sheets",
+      uom: "ream",
+      list_price_eur: 7.4,
+      unit_cost_eur: 4.6,
+      supplier_lead_days: 21,
+    },
+    {
+      sku: "TNR-BLK-HY",
+      name: "Toner cartridge black, high yield",
+      uom: "unit",
+      list_price_eur: 98.0,
+      unit_cost_eur: 62.0,
+      supplier_lead_days: 14,
+    },
+    {
+      sku: "PRN-MFP-400",
+      name: "Laser MFP 4-in-1, A4 mono, 40 ppm",
+      uom: "unit",
+      list_price_eur: 399.0,
+      unit_cost_eur: 268.0,
+      supplier_lead_days: 28,
+    },
+    {
+      sku: "PRN-COL-700",
+      name: "Colour laser A4, 30 ppm, duplex",
+      uom: "unit",
+      list_price_eur: 619.0,
+      unit_cost_eur: 412.0,
+      supplier_lead_days: 35,
+    },
+  ],
+  price_tiers: [
+    {
+      sku: "PPR-A4-80",
+      min_qty: 100,
+      unit_price_eur: 20.4,
+    },
+    {
+      sku: "PPR-A4-80",
+      min_qty: 500,
+      unit_price_eur: 18.9,
+    },
+    {
+      sku: "PPR-LTR-20",
+      min_qty: 100,
+      unit_price_eur: 22.3,
+    },
+    {
+      sku: "TNR-BLK-HY",
+      min_qty: 20,
+      unit_price_eur: 89.0,
+    },
+    {
+      sku: "PRN-MFP-400",
+      min_qty: 5,
+      unit_price_eur: 369.0,
+    },
+    {
+      sku: "PRN-MFP-400",
+      min_qty: 20,
+      unit_price_eur: 339.0,
+    },
+    {
+      sku: "PRN-COL-700",
+      min_qty: 3,
+      unit_price_eur: 589.0,
+    },
+  ],
+  stock: [
+    {
+      sku: "PPR-A4-80",
+      warehouse: "SCR",
+      on_hand: 1200,
+      reserved: 350,
+    },
+    {
+      sku: "PPR-A4-80",
+      warehouse: "STM",
+      on_hand: 400,
+      reserved: 60,
+    },
+    {
+      sku: "PPR-LTR-20",
+      warehouse: "SCR",
+      on_hand: 640,
+      reserved: 80,
+    },
+    {
+      sku: "PPR-PREM-90",
+      warehouse: "YON",
+      on_hand: 150,
+      reserved: 0,
+    },
+    {
+      sku: "TNR-BLK-HY",
+      warehouse: "SCR",
+      on_hand: 42,
+      reserved: 12,
+    },
+    {
+      sku: "TNR-BLK-HY",
+      warehouse: "STM",
+      on_hand: 9,
+      reserved: 4,
+    },
+    {
+      sku: "PRN-MFP-400",
+      warehouse: "SCR",
+      on_hand: 14,
+      reserved: 6,
+    },
+    {
+      sku: "PRN-MFP-400",
+      warehouse: "YON",
+      on_hand: 3,
+      reserved: 0,
+    },
+    {
+      sku: "PRN-COL-700",
+      warehouse: "STM",
+      on_hand: 2,
+      reserved: 2,
+    },
+  ],
+  purchase_orders: [
+    {
+      po_id: "PO-2026-0417",
+      sku: "PRN-COL-700",
+      warehouse: "STM",
+      qty: 10,
+      expected_date: "2026-11-24",
+      status: "open",
+    },
+    {
+      po_id: "PO-2026-0422",
+      sku: "TNR-BLK-HY",
+      warehouse: "STM",
+      qty: 30,
+      expected_date: "2026-11-18",
+      status: "open",
+    },
+    {
+      po_id: "PO-2026-0430",
+      sku: "PRN-MFP-400",
+      warehouse: "SCR",
+      qty: 20,
+      expected_date: "2026-12-08",
+      status: "open",
+    },
+    {
+      po_id: "PO-2026-0431",
+      sku: "PPR-A4-80",
+      warehouse: "SCR",
+      qty: 400,
+      expected_date: "2026-11-17",
+      status: "open",
+    },
+  ],
+  delivery_options: [
+    {
+      code: "STD",
+      label: "Standard",
+      cost_eur: 45.0,
+    },
+    {
+      code: "EXP",
+      label: "Express",
+      cost_eur: 120.0,
+    },
+    {
+      code: "PAL",
+      label: "Pallet, freight",
+      cost_eur: 190.0,
+    },
+  ],
+  delivery_lanes: [
+    {
+      warehouse: "SCR",
+      region: "Northeast",
+      option_code: "STD",
+      transit_days: 2,
+    },
+    {
+      warehouse: "SCR",
+      region: "Northeast",
+      option_code: "EXP",
+      transit_days: 1,
+    },
+    {
+      warehouse: "SCR",
+      region: "Northeast",
+      option_code: "PAL",
+      transit_days: 4,
+    },
+    {
+      warehouse: "STM",
+      region: "Northeast",
+      option_code: "STD",
+      transit_days: 1,
+    },
+    {
+      warehouse: "STM",
+      region: "Northeast",
+      option_code: "EXP",
+      transit_days: 1,
+    },
+    {
+      warehouse: "YON",
+      region: "Metro",
+      option_code: "STD",
+      transit_days: 1,
+    },
+    {
+      warehouse: "YON",
+      region: "Metro",
+      option_code: "EXP",
+      transit_days: 1,
+    },
+  ],
+  payment_terms: [
+    {
+      code: "NET30",
+      label: "Net 30",
+    },
+    {
+      code: "NET45",
+      label: "Net 45",
+    },
+    {
+      code: "NET60",
+      label: "Net 60",
+    },
+    {
+      code: "2_10_NET30",
+      label: "2/10 Net 30",
+    },
+  ],
+  customers: [
+    {
+      account_id: "ACC-1001",
+      name: "Schrute Farms B&B",
+      credit_limit_eur: 60000,
+      open_ar_eur: 12400,
+      standing: "good",
+      default_terms: "NET30",
+    },
+    {
+      account_id: "ACC-1002",
+      name: "Lackawanna Legal Partners",
+      credit_limit_eur: 45000,
+      open_ar_eur: 38200,
+      standing: "watch",
+      default_terms: "NET30",
+    },
+    {
+      account_id: "ACC-1003",
+      name: "Keystone Dental Group",
+      credit_limit_eur: 80000,
+      open_ar_eur: 9100,
+      standing: "good",
+      default_terms: "NET45",
+    },
+    {
+      account_id: "ACC-1004",
+      name: "Bluebird Logistics",
+      credit_limit_eur: 25000,
+      open_ar_eur: 27600,
+      standing: "hold",
+      default_terms: "NET30",
+    },
+  ],
+  budgets: [
+    {
+      territory: "Scranton",
+      quarter: "2026-Q4",
+      budget_eur: 180000,
+      committed_eur: 96400,
+    },
+    {
+      territory: "Stamford",
+      quarter: "2026-Q4",
+      budget_eur: 140000,
+      committed_eur: 112750,
+    },
+    {
+      territory: "Yonkers",
+      quarter: "2026-Q4",
+      budget_eur: 95000,
+      committed_eur: 41200,
+    },
+    {
+      territory: "Scranton",
+      quarter: "2027-Q1",
+      budget_eur: 165000,
+      committed_eur: 0,
+    },
+    {
+      territory: "Stamford",
+      quarter: "2027-Q1",
+      budget_eur: 130000,
+      committed_eur: 0,
+    },
+    {
+      territory: "Yonkers",
+      quarter: "2027-Q1",
+      budget_eur: 90000,
+      committed_eur: 0,
+    },
+  ],
+}

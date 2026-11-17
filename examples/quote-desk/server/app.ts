@@ -1,6 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { BotPage } from "@botyard/botpage"
-import { requireMember, withViewer } from "@botyard/botpage/node"
+import { withViewer } from "@botyard/botpage/node"
+import { match, sendError, sendJson, type Route } from "./http.ts"
+import type { QuoteDesk } from "./quotes/desk.ts"
+import { quoteRoutes } from "./routes.ts"
 import { serveStatic } from "./static.ts"
 import type { StaticFiles } from "./static.ts"
 
@@ -9,6 +12,8 @@ export type Middleware = (req: IncomingMessage, res: ServerResponse, next: () =>
 
 export type AppOptions = {
   botpage: BotPage
+  /** The quotes this app serves. */
+  desk: QuoteDesk
   /** Built UI to serve (production), from `loadStatic`. */
   staticFiles?: StaticFiles
   /** Serves the UI in development (Vite). Used when `staticFiles` is not set. */
@@ -17,37 +22,54 @@ export type AppOptions = {
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  const text = JSON.stringify(body)
-  res.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "content-length": Buffer.byteLength(text),
-    "cache-control": "no-store",
-  })
-  res.end(text)
-}
-
 /**
- * The app's HTTP handler. Add your API routes to `api` below.
+ * The app's HTTP handler.
  *
  * Every request reaches this server through the Bot Page proxy, which signs
- * the viewer in. `withViewer` gives a route the viewer, or null;
- * `requireMember` lets only members of your org through.
+ * the viewer in. `withViewer` gives a route the viewer, or null; the quote
+ * routes (routes.ts) let only members of your org through.
  */
-export function createApp({ botpage, staticFiles, ui }: AppOptions): Handler {
-  const api: Record<string, Handler> = {
-    "GET /api/health": async (_req, res) => {
-      sendJson(res, 200, { ok: true })
+/** Runs the API route for a request. Refusals become JSON; anything else is rethrown. */
+async function handleApi(
+  api: readonly Route[],
+  method: string,
+  pathname: string,
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> {
+  const found = match(api, method === "HEAD" ? "GET" : method, pathname)
+  if (found.route === null) {
+    sendJson(res, found.allowed ? 405 : 404, {
+      error: found.allowed ? "method_not_allowed" : "not_found",
+    })
+    return
+  }
+  try {
+    await found.route.handler(req, res, found.params)
+  } catch (err) {
+    if (!sendError(res, err)) throw err
+  }
+}
+
+export function createApp({ botpage, desk, staticFiles, ui }: AppOptions): Handler {
+  const api: Route[] = [
+    {
+      method: "GET",
+      path: "/api/health",
+      handler: async (_req, res) => {
+        sendJson(res, 200, { ok: true })
+      },
     },
     // Who is looking at this page: a member, an unknown person, a bot, or null.
-    "GET /api/me": withViewer(botpage, (_req, res, viewer) => {
-      sendJson(res, 200, { viewer })
-    }),
-    // An example of a members-only route. Others get 401 or 403 as JSON.
-    "GET /api/hello": requireMember(botpage, (_req, res, member) => {
-      sendJson(res, 200, { message: `Hello, ${member.name ?? member.email ?? member.userId}!` })
-    }),
-  }
+    {
+      method: "GET",
+      path: "/api/me",
+      handler: withViewer(botpage, (_req, res, viewer) => {
+        sendJson(res, 200, { viewer })
+      }),
+    },
+    ...quoteRoutes(desk, botpage),
+  ]
 
   return async (req, res) => {
     let url: URL
@@ -60,9 +82,7 @@ export function createApp({ botpage, staticFiles, ui }: AppOptions): Handler {
     const method = req.method ?? "GET"
 
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-      const route = api[`${method === "HEAD" ? "GET" : method} ${url.pathname}`]
-      if (route === undefined) sendJson(res, 404, { error: "not_found" })
-      else await route(req, res)
+      await handleApi(api, method, url.pathname, req, res)
       return
     }
 

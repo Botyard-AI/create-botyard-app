@@ -27,5 +27,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["server", "scripts", "test/*.ts", "vite.config.ts", "eslint.config.js"]
+  "include": ["shared", "server", "scripts", "test/*.ts", "vite.config.ts", "eslint.config.js"]
 }
