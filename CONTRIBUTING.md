@@ -25,6 +25,15 @@ changelog when we land it.
   (`pnpm run format` fixes it), `pnpm run typecheck`, `pnpm test`, `pnpm run build`
   and `pnpm run knip`. The tooling follows the Botyard monorepo's TypeScript
   standard; see `tooling/eslint-config/README.md`.
+- Template dependencies are exact pins with a committed `package-lock.json`.
+  After changing a template's dependencies, run
+  `scripts/lock-template.sh <template>`: it resolves third-party versions as
+  of 3 days ago and runs no install scripts.
+- Templates use our own packages (`@botyard/runtime`, `@botyard/botpage`) as
+  `workspace:*`, so tests run against the sources here. The CLI build pins them
+  to the versions in `packages/*/package.json`, and fails unless each is the
+  current `latest` on npm and locked as published, so release an SDK package
+  before a template that needs it. The build needs the npm registry.
 - Third-party actions are pinned to full commit SHAs and must be on the
   allow-list in `scripts/apply-repo-settings.sh`.
 - Repository settings are code: change `.github/rulesets/` or

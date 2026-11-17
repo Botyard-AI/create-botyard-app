@@ -1,0 +1,1 @@
+../../../tooling/eslint-config/base.js

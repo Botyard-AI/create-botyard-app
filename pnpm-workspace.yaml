@@ -6,6 +6,8 @@ packages:
 # Supply chain: do not install a dependency version until it has been public
 # for 3 days (most malicious releases are pulled within hours).
 minimumReleaseAge: 4320
+# No exclusions: templates use our own packages as workspace:* (the sources
+# here), and the CLI build pins them to their published versions.
 # Supply chain: no dependency may run install scripts unless listed here.
 onlyBuiltDependencies: []
 strictDepBuilds: true
