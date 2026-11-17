@@ -234,8 +234,8 @@ export type SentEmail = {
   readonly recorded_by: string
 }
 
-/** A quote as stored. */
-export type QuoteRecord = {
+/** What every quote has, whatever its status. */
+export type QuoteBase = {
   readonly id: string
   readonly owner: Person
   readonly account_id: string
@@ -246,16 +246,31 @@ export type QuoteRecord = {
   readonly lines: readonly Line[]
   readonly order_discount_pct: number
   readonly order_discount_reason: string
-  readonly status: QuoteStatus
   readonly created_at: string
-  /** Demo date the numbers were frozen on (at submit); null while a draft. */
-  readonly priced_on: string | null
-  readonly sign_by: string | null
+  /** All empty on a draft; see the parser for what each status requires. */
   readonly approvals: Approvals
-  readonly email: SentEmail | null
-  readonly signed_at: string | null
   readonly events: readonly QuoteEvent[]
 }
+
+/** The stages at which approvers decide. */
+export type ReviewStage = "finance_review" | "business_review"
+
+/** Set at submit: the demo date the numbers were frozen on, and the sign-by date. */
+type Frozen = { readonly priced_on: string; readonly sign_by: string }
+
+/** Being edited. Priced live; a rejection brings a quote back here. */
+export type DraftQuote = QuoteBase & { readonly status: "draft" }
+
+/** Submitted: in review, or approved and not yet sent. */
+export type ReviewQuote = QuoteBase & Frozen & { readonly status: ReviewStage | "approved" }
+
+export type SentQuote = QuoteBase & Frozen & { readonly status: "sent"; readonly email: SentEmail }
+
+export type SignedQuote = QuoteBase &
+  Frozen & { readonly status: "signed"; readonly email: SentEmail; readonly signed_at: string }
+
+/** A quote as stored: one variant per status, each with the fields that status requires. */
+export type QuoteRecord = DraftQuote | ReviewQuote | SentQuote | SignedQuote
 
 export type Tone = "muted" | "info" | "warning" | "success"
 

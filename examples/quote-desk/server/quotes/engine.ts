@@ -15,14 +15,13 @@ import {
   type Pricing,
   type QuarterRow,
   type QuoteRecord,
-  type QuoteStatus,
+  type ReviewStage,
 } from "../../shared/types.ts"
 
 /** Highest order discount anyone may type in, in percent. */
 export const MAX_ORDER_DISCOUNT_PCT = 50
 
 /** Statuses that count towards a quarter's pipeline. */
-const PIPELINE: readonly QuoteStatus[] = ["finance_review", "business_review", "approved", "sent"]
 
 export const round2 = (n: number): number => Math.round(n * 100) / 100
 const pct = (num: number, den: number): number => (den ? Math.round((1000 * num) / den) / 10 : 0)
@@ -267,18 +266,15 @@ export function emptyApprovals(): Approvals {
   return { bot_review: null, finance: null, business: null }
 }
 
-/** The roles whose approval is open at a status, or null when none is. */
-export function rolesAt(status: QuoteStatus): readonly ApproverRole[] | null {
-  if (status === "finance_review") return FINANCE_ROLES
-  if (status === "business_review") return BUSINESS_ROLES
-  return null
+/** The roles that decide at a review stage. */
+export function rolesAt(stage: ReviewStage): readonly ApproverRole[] {
+  return stage === "finance_review" ? FINANCE_ROLES : BUSINESS_ROLES
 }
 
 /** Where a quote goes once every role at its stage has approved. */
-export function nextStatus(status: QuoteStatus, approvals: Approvals): QuoteStatus {
-  const roles = rolesAt(status)
-  if (roles === null || !roles.every((r) => approvals[r]?.decision === "approve")) return status
-  return status === "finance_review" ? "business_review" : "approved"
+export function nextStatus(stage: ReviewStage, approvals: Approvals): ReviewStage | "approved" {
+  if (!rolesAt(stage).every((r) => approvals[r]?.decision === "approve")) return stage
+  return stage === "finance_review" ? "business_review" : "approved"
 }
 
 /** Quarter-close view: budget, signed, pipeline and headroom per territory. */
@@ -293,28 +289,18 @@ export function quarterPanel(
   return erp.budgets
     .filter((b) => b.quarter === quarter)
     .map((b) => {
-      const mine = quotes.filter(
-        (q) => q.record.territory === b.territory && q.record.priced_on !== null
-      )
+      const mine = quotes.filter((q) => q.record.territory === b.territory)
       const signed = sum(
-        mine
-          .filter(
-            (q) =>
-              q.record.status === "signed" &&
-              q.record.signed_at !== null &&
-              quarterOf(q.record.signed_at) === quarter
-          )
-          .map((q) => q.total_eur)
+        mine.map(({ record: r, total_eur }) =>
+          r.status === "signed" && quarterOf(r.signed_at) === quarter ? total_eur : 0
+        )
       )
       const pipeline = sum(
-        mine
-          .filter(
-            (q) =>
-              PIPELINE.includes(q.record.status) &&
-              q.record.sign_by !== null &&
-              quarterOf(q.record.sign_by) === quarter
-          )
-          .map((q) => q.total_eur)
+        mine.map(({ record: r, total_eur }) =>
+          r.status !== "draft" && r.status !== "signed" && quarterOf(r.sign_by) === quarter
+            ? total_eur
+            : 0
+        )
       )
       const committed = round2(b.committed_eur + signed)
       return {

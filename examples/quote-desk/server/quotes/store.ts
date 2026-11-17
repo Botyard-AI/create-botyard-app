@@ -1,5 +1,5 @@
 // The desk's state on disk: one JSON file, replaced atomically on every change.
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { DeskState } from "./desk.ts"
 import { parseDeskState } from "./parse.ts"
@@ -25,6 +25,11 @@ export function loadState(file: string): DeskState | null {
 export function saveState(file: string, state: DeskState): void {
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   const tmp = `${file}.${String(process.pid)}.tmp`
-  writeFileSync(tmp, `${JSON.stringify({ version: 1, ...state }, null, 2)}\n`, { mode: 0o600 })
-  renameSync(tmp, file)
+  try {
+    writeFileSync(tmp, `${JSON.stringify({ version: 1, ...state }, null, 2)}\n`, { mode: 0o600 })
+    renameSync(tmp, file)
+  } catch (err) {
+    rmSync(tmp, { force: true })
+    throw err
+  }
 }

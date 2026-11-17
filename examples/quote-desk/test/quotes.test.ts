@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { describe, expect, test } from "vitest"
@@ -13,9 +13,11 @@ import {
   parseMeta,
   parsePricing,
   parseQuarter,
+  parseQuoteRecord,
   parseQuoteSummaries,
   parseQuoteView,
 } from "../shared/parse.ts"
+import { isRecord } from "../shared/narrow.ts"
 import { memoryDesk } from "./helpers.ts"
 
 const ME = { name: "Ada Lovelace", email: "ada@example.com" }
@@ -111,7 +113,8 @@ describe("workflow", () => {
     expect(rejected.status).toBe("draft")
     expect(rejected.progress.phase).toBe("changes_requested")
     expect(rejected.progress.detail).toBe("Margin under the floor. Max 3%, Net 45.")
-    expect(rejected.priced_on).toBeNull()
+    expect(rejected).not.toHaveProperty("priced_on")
+    expect(rejected).not.toHaveProperty("sign_by")
 
     // Step 4: edit and resubmit.
     desk.update(q.id, STEP_4, ME, ME.name)
@@ -127,7 +130,8 @@ describe("workflow", () => {
     // Step 7: record the send, then the signature.
     const sent = desk.send(q.id, ME.name)
     expect(sent.status).toBe("sent")
-    expect(sent.email?.to).toMatch(/\.invalid$/)
+    if (sent.status !== "sent") throw new Error("not sent")
+    expect(sent.email.to).toMatch(/\.invalid$/)
     const signed = desk.sign(q.id, "customer")
     expect(signed.status).toBe("signed")
     expect(signed.events.map((e) => e.type)).toEqual([
@@ -150,8 +154,7 @@ describe("workflow", () => {
   test("submitted numbers are frozen; drafts are priced live", () => {
     const desk = memoryDesk()
     const q = desk.submit(desk.create(STEP_1, ME, ME.name).id, ME.name)
-    expect(q.priced_on).toBe("2026-11-10")
-    expect(q.sign_by).toBe("2026-12-24")
+    expect(q).toMatchObject({ priced_on: "2026-11-10", sign_by: "2026-12-24" })
     expect(q.pricing.total_eur).toBe(1921.8)
   })
 
@@ -288,6 +291,88 @@ describe("parsing untrusted input", () => {
   })
 })
 
+describe("each status carries exactly its own fields", () => {
+  /** A quote at each status, as stored. */
+  function quotes(): Record<string, unknown> {
+    const desk = memoryDesk()
+    const id = desk.create(STEP_4, ME, ME.name).id
+    const at: Record<string, unknown> = { draft: desk.state().quotes.at(-1) }
+    desk.submit(id, ME.name)
+    at["finance_review"] = desk.state().quotes.at(-1)
+    desk.decide(id, "bot_review", "approve", "", "bot")
+    desk.decide(id, "finance", "approve", "", "finance")
+    at["business_review"] = desk.state().quotes.at(-1)
+    desk.decide(id, "business", "approve", "", "business")
+    at["approved"] = desk.state().quotes.at(-1)
+    desk.send(id, ME.name)
+    at["sent"] = desk.state().quotes.at(-1)
+    desk.sign(id, "customer")
+    at["signed"] = desk.state().quotes.at(-1)
+    return at
+  }
+
+  /** The stored quote at `status`, as JSON, with `change` applied. */
+  function stored(
+    status: string,
+    change: (r: Readonly<Record<string, unknown>>) => Record<string, unknown>
+  ): unknown {
+    const json: unknown = JSON.parse(JSON.stringify(quotes()[status]))
+    if (!isRecord(json)) throw new Error("not a record")
+    return change(json)
+  }
+
+  test.each(["draft", "finance_review", "business_review", "approved", "sent", "signed"])(
+    "a %s quote round-trips",
+    (status) => {
+      const q = parseQuoteRecord(
+        stored(status, (r) => ({ ...r })),
+        "q"
+      )
+      expect(q.status).toBe(status)
+    }
+  )
+
+  test.each([
+    ["a signed quote without its signature date", "signed", "signed_at", undefined, /signed_at/],
+    ["a sent quote without its email", "sent", "email", undefined, /email/],
+    ["a submitted quote without frozen numbers", "approved", "priced_on", undefined, /priced_on/],
+    ["a draft with frozen numbers", "draft", "priced_on", "2026-11-10", /draft quote has none/],
+    ["a draft with a null sign-by date", "draft", "sign_by", null, /draft quote has none/],
+    ["an approved quote with an email", "approved", "email", { to: "x" }, /approved quote/],
+  ])("refuses %s", (_name, status, key, value, message) => {
+    const bad = stored(status, (r) =>
+      value === undefined
+        ? Object.fromEntries(Object.entries(r).filter(([k]) => k !== key))
+        : { ...r, [key]: value }
+    )
+    expect(() => parseQuoteRecord(bad, "q")).toThrow(message)
+  })
+
+  const approval = { decision: "approve", note: "", by: "x", at: "2026-11-10" }
+  test.each([
+    ["a draft with an approval", "draft", { bot_review: approval }],
+    [
+      "finance review with a rejection kept",
+      "finance_review",
+      { bot_review: { ...approval, decision: "reject" } },
+    ],
+    [
+      "finance review with every finance approval in",
+      "finance_review",
+      { bot_review: approval, finance: approval },
+    ],
+    ["finance review with a business decision", "finance_review", { business: approval }],
+    ["business review without finance approval", "business_review", { finance: null }],
+    ["a signed quote missing an approval", "signed", { business: null }],
+  ])("refuses %s", (_name, status, patch) => {
+    const bad = stored(status, (r) => ({
+      ...r,
+      approvals: { ...(isRecord(r["approvals"]) ? r["approvals"] : {}), ...patch },
+    }))
+    expect(() => parseQuoteRecord(bad, "q")).toThrow(/approvals/)
+  })
+})
+
 describe("the UI's parsers read what the API sends", () => {
   test("meta, pricing, quote, list and quarter round-trip through JSON", () => {
     const desk = memoryDesk()
@@ -301,5 +386,92 @@ describe("the UI's parsers read what the API sends", () => {
     expect(parseQuoteView(wire(desk.get(id)))).toEqual(desk.get(id))
     expect(parseQuoteSummaries(wire({ quotes: desk.list() }))).toEqual(desk.list())
     expect(parseQuarter(wire(desk.quarter()))).toEqual(desk.quarter())
+  })
+})
+
+describe("a failed save changes nothing", () => {
+  /** A desk saving to a real file, with a switch that makes the next saves fail. */
+  function fileDesk(dir: string) {
+    const file = path.join(dir, "state.json")
+    const disk = { full: false }
+    const open = () =>
+      new QuoteDesk({
+        erp: ERP_SEED,
+        crm: CRM_SEED,
+        state: loadState(file),
+        now: () => new Date("2026-11-10T09:00:00Z"),
+        save: (state) => {
+          if (disk.full) throw new Error("disk full")
+          saveState(file, state)
+        },
+      })
+    return { file, disk, open }
+  }
+
+  test("submit: read, retry and restart all see the draft until a save succeeds", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "qd-"))
+    try {
+      const { disk, open } = fileDesk(dir)
+      const desk = open()
+      disk.full = true
+      expect(() => desk.submit("Q-2026-0201", "Ada")).toThrow("disk full")
+      expect(desk.get("Q-2026-0201").status).toBe("draft")
+      expect(open().get("Q-2026-0201").status).toBe("draft")
+
+      disk.full = false
+      expect(desk.submit("Q-2026-0201", "Ada").status).toBe("finance_review")
+      expect(open().get("Q-2026-0201").status).toBe("finance_review")
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("create and reset: no id is used up and no quote is lost", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "qd-"))
+    try {
+      const { disk, open } = fileDesk(dir)
+      const desk = open()
+      disk.full = true
+      expect(() => desk.create(STEP_1, { name: "Ada", email: null }, "Ada")).toThrow("disk full")
+      expect(desk.list()).toHaveLength(2)
+
+      disk.full = false
+      expect(desk.create(STEP_1, { name: "Ada", email: null }, "Ada").id).toBe("Q-2026-0202")
+
+      disk.full = true
+      expect(() => desk.reset()).toThrow("disk full")
+      expect(desk.list()).toHaveLength(3)
+      expect(open().list()).toHaveLength(3)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("a desk that cannot save its first state refuses to start", () => {
+    expect(
+      () =>
+        new QuoteDesk({
+          erp: ERP_SEED,
+          crm: CRM_SEED,
+          save: () => {
+            throw new Error("read-only")
+          },
+        })
+    ).toThrow("read-only")
+  })
+
+  test("a failed rename leaves no temporary file behind", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "qd-"))
+    try {
+      // A directory where the state file should be makes the rename fail.
+      const file = path.join(dir, "state.json")
+      mkdirSync(path.join(file, "occupied"), { recursive: true })
+      expect(() => {
+        saveState(file, memoryDesk().state())
+      }).toThrow()
+      expect(readdirSync(dir)).toEqual(["state.json"])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

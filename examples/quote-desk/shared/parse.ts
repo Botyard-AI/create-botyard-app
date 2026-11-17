@@ -1,6 +1,8 @@
 // Parsers for quote records (the server's state file) and API responses (the UI).
 import {
   APPROVER_ROLES,
+  BUSINESS_ROLES,
+  FINANCE_ROLES,
   type Approval,
   type Approvals,
   type ApproverRole,
@@ -15,6 +17,7 @@ import {
   type Pricing,
   type Progress,
   type QuarterRow,
+  type QuoteBase,
   type QuoteEvent,
   type QuoteRecord,
   type QuoteStatus,
@@ -113,8 +116,7 @@ function event(value: unknown, at: string): QuoteEvent {
   }
 }
 
-function email(value: unknown, at: string): SentEmail | null {
-  if (value === null) return null
+function email(value: unknown, at: string): SentEmail {
   const r = record(value, at)
   return {
     to: str(r, "to", at, 320),
@@ -125,7 +127,50 @@ function email(value: unknown, at: string): SentEmail | null {
   }
 }
 
-function quoteFields(r: Rec, at: string): QuoteRecord {
+/** Fields a status adds. A quote may carry only those of its own status. */
+const LIFECYCLE_FIELDS = ["priced_on", "sign_by", "email", "signed_at"] as const
+
+function absent(r: Rec, keys: readonly string[], status: QuoteStatus, at: string): void {
+  for (const key of keys) {
+    if (r[key] !== undefined) throw new ParseError(`${at}.${key}: a ${status} quote has none`)
+  }
+}
+
+/**
+ * The approvals a status implies: `done` roles have approved, `open` roles
+ * decide now (approved or not yet), and every other role is empty. Drafts have
+ * none, since a rejection clears them.
+ */
+const APPROVALS_AT: Readonly<
+  Record<QuoteStatus, { done: readonly ApproverRole[]; open: readonly ApproverRole[] }>
+> = {
+  draft: { done: [], open: [] },
+  finance_review: { done: [], open: FINANCE_ROLES },
+  business_review: { done: FINANCE_ROLES, open: BUSINESS_ROLES },
+  approved: { done: APPROVER_ROLES, open: [] },
+  sent: { done: APPROVER_ROLES, open: [] },
+  signed: { done: APPROVER_ROLES, open: [] },
+}
+
+function checkApproval(role: ApproverRole, a: Approvals, status: QuoteStatus, at: string): void {
+  const { done, open } = APPROVALS_AT[status]
+  const decision = a[role]?.decision ?? null
+  const expected = done.includes(role) ? "approve" : null
+  if (open.includes(role) ? decision === "reject" : decision !== expected) {
+    throw new ParseError(
+      `${at}.approvals.${role}: cannot be ${String(decision)} on a ${status} quote`
+    )
+  }
+}
+
+function checkApprovals(a: Approvals, status: QuoteStatus, at: string): void {
+  for (const role of APPROVER_ROLES) checkApproval(role, a, status, at)
+  const { open } = APPROVALS_AT[status]
+  if (open.length > 0 && open.every((role) => a[role]?.decision === "approve"))
+    throw new ParseError(`${at}.approvals: every ${status} approval is in; the quote has moved on`)
+}
+
+function quoteBase(r: Rec, at: string): QuoteBase {
   return {
     id: str(r, "id", at, 40),
     owner: person(r["owner"], `${at}.owner`),
@@ -137,14 +182,39 @@ function quoteFields(r: Rec, at: string): QuoteRecord {
     lines: items(r, "lines", at, MAX_LINES, parseLine),
     order_discount_pct: num(r, "order_discount_pct", at),
     order_discount_reason: str(r, "order_discount_reason", at),
-    status: oneOf(r, "status", STATUSES, at),
     created_at: str(r, "created_at", at),
-    priced_on: strOrNull(r, "priced_on", at),
-    sign_by: strOrNull(r, "sign_by", at),
     approvals: approvals(r["approvals"], `${at}.approvals`),
-    email: email(r["email"], `${at}.email`),
-    signed_at: strOrNull(r, "signed_at", at),
     events: items(r, "events", at, 10_000, event),
+  }
+}
+
+/** One variant per status: the fields it requires are present, the others absent. */
+function quoteFields(r: Rec, at: string): QuoteRecord {
+  const status = oneOf(r, "status", STATUSES, at)
+  const base = quoteBase(r, at)
+  checkApprovals(base.approvals, status, at)
+  if (status === "draft") {
+    absent(r, LIFECYCLE_FIELDS, status, at)
+    return { ...base, status }
+  }
+  const frozen = { priced_on: str(r, "priced_on", at), sign_by: str(r, "sign_by", at) }
+  switch (status) {
+    case "finance_review":
+    case "business_review":
+    case "approved":
+      absent(r, ["email", "signed_at"], status, at)
+      return { ...base, ...frozen, status }
+    case "sent":
+      absent(r, ["signed_at"], status, at)
+      return { ...base, ...frozen, status, email: email(r["email"], `${at}.email`) }
+    case "signed":
+      return {
+        ...base,
+        ...frozen,
+        status,
+        email: email(r["email"], `${at}.email`),
+        signed_at: str(r, "signed_at", at),
+      }
   }
 }
 

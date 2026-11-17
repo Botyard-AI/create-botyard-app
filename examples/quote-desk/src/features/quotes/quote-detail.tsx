@@ -45,7 +45,7 @@ export function QuoteDetail({ quote, onChanged, onEdit }: Props) {
           </div>
           <p className="text-muted-foreground text-sm">
             {quote.account} · {quote.territory} · owner {quote.owner.name} · terms {quote.terms}
-            {quote.sign_by === null ? "" : ` · sign by ${quote.sign_by}`}
+            {quote.status === "draft" ? "" : ` · sign by ${quote.sign_by}`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -116,7 +116,7 @@ export function QuoteDetail({ quote, onChanged, onEdit }: Props) {
               <PricingSummary p={quote.pricing} />
             </div>
           </Panel>
-          {quote.email === null ? null : (
+          {quote.status !== "sent" && quote.status !== "signed" ? null : (
             <Panel title="Email to the customer (recorded, not delivered)">
               <div className="grid gap-1 p-4 text-sm">
                 <p>

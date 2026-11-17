@@ -4,6 +4,7 @@ import type {
   ApproverRole,
   Approvals,
   Decision,
+  DraftQuote,
   Erp,
   Crm,
   Meta,
@@ -12,9 +13,11 @@ import type {
   QuarterRow,
   QuoteEvent,
   QuoteInput,
+  QuoteBase,
   QuoteRecord,
   QuoteSummary,
   QuoteView,
+  ReviewQuote,
   Pricing,
 } from "../../shared/types.ts"
 import {
@@ -74,8 +77,11 @@ export class QuoteDesk {
     this.today = options.today ?? options.erp.as_of
     this.#save = options.save ?? (() => undefined)
     this.#now = options.now ?? (() => new Date())
-    this.#state = options.state ?? this.#fresh()
-    if (options.state === undefined || options.state === null) this.#save(this.#state)
+    const stored = options.state ?? null
+    const initial = stored ?? this.#fresh()
+    // A fresh desk is saved before it is used, so a desk that cannot save fails at start.
+    if (stored === null) this.#save(initial)
+    this.#state = initial
   }
 
   // ---------- reads ----------
@@ -134,7 +140,7 @@ export class QuoteDesk {
           account: this.#accountName(q.account_id),
           territory: q.territory,
           total_eur: this.#pricing(q).total_eur,
-          sign_by: q.sign_by,
+          sign_by: q.status === "draft" ? null : q.sign_by,
           updated: last?.ts ?? q.created_at,
           lines: q.lines.length,
         }
@@ -201,14 +207,13 @@ export class QuoteDesk {
   /** Record one approver's decision and move the quote along. */
   decide(id: string, role: ApproverRole, decision: Decision, note: string, by: string): QuoteView {
     const q = this.#find(id)
-    const roles = rolesAt(q.status)
-    if (roles === null) {
+    if (q.status !== "finance_review" && q.status !== "business_review") {
       throw new DeskError(
         409,
         `${id} is ${q.status}; approvals are only open in finance or business review`
       )
     }
-    if (!roles.includes(role))
+    if (!rolesAt(q.status).includes(role))
       throw new DeskError(409, `${ROLE_LABEL[role]} does not decide at ${q.status}`)
     if (q.approvals[role] !== null)
       throw new DeskError(409, `${ROLE_LABEL[role]} has already decided ${id}`)
@@ -222,14 +227,8 @@ export class QuoteDesk {
           note: `${ROLE_LABEL[role]} requested changes`,
         })
       )
-      this.#replace({
-        ...q,
-        status: "draft",
-        approvals: emptyApprovals(),
-        priced_on: null,
-        sign_by: null,
-        events,
-      })
+      // Back to a draft: the frozen numbers and every approval are dropped.
+      this.#replace({ ...base(q), status: "draft", approvals: emptyApprovals(), events })
       return this.get(id)
     }
     const approvals: Approvals = {
@@ -265,7 +264,7 @@ export class QuoteDesk {
       subject: `Quote ${id} (fictional demo)`,
       body:
         `Hello ${contact.name},\n\nPlease find quote ${id} for ${String(p.lines.length)} line(s), ` +
-        `total EUR ${p.total_eur.toFixed(2)}. Please sign by ${q.sign_by ?? "–"}.\n\nThis is demo data.`,
+        `total EUR ${p.total_eur.toFixed(2)}. Please sign by ${q.sign_by}.\n\nThis is demo data.`,
       recorded_at: this.today,
       recorded_by: by,
     }
@@ -335,27 +334,23 @@ export class QuoteDesk {
     return { counter: 201, quotes: [this.#submitted(a, jim.name), b] }
   }
 
-  #newRecord(id: string, input: QuoteInput, owner: Person, by: string): QuoteRecord {
+  #newRecord(id: string, input: QuoteInput, owner: Person, by: string): DraftQuote {
     return {
       id,
       ...fields(input),
       owner,
       status: "draft",
       created_at: this.today,
-      priced_on: null,
-      sign_by: null,
       approvals: emptyApprovals(),
-      email: null,
-      signed_at: null,
       events: [
         this.#event(by, { type: "created", on_behalf_of: by === owner.name ? null : owner.name }),
       ],
     }
   }
 
-  #submitted(q: QuoteRecord, by: string): QuoteRecord {
+  #submitted(q: DraftQuote, by: string): ReviewQuote {
     return {
-      ...q,
+      ...base(q),
       status: "finance_review",
       priced_on: this.today,
       sign_by: signBy(this.today, this.erp.settings.sign_by_buffer_working_days),
@@ -370,7 +365,7 @@ export class QuoteDesk {
 
   /** Drafts are priced as of today; submitted quotes keep the numbers they were frozen with. */
   #pricing(q: QuoteRecord): Pricing {
-    return priceQuote(this.erp, q, q.priced_on ?? this.today)
+    return priceQuote(this.erp, q, q.status === "draft" ? this.today : q.priced_on)
   }
 
   #find(id: string): QuoteRecord {
@@ -387,9 +382,13 @@ export class QuoteDesk {
     this.#commit({ ...this.#state, quotes: this.#state.quotes.map((x) => (x.id === q.id ? q : x)) })
   }
 
+  /**
+   * Saves, then publishes. When the save throws, the change is not applied:
+   * memory keeps matching what is on disk, and the request can be retried.
+   */
   #commit(state: DeskState): void {
-    this.#state = state
     this.#save(state)
+    this.#state = state
   }
 
   /** Domain checks: the input is well-formed (see input.ts), but does it name real things? */
@@ -421,6 +420,25 @@ export class QuoteDesk {
 }
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
+
+/** The fields every status shares, without the ones a status adds. */
+function base(q: QuoteRecord): QuoteBase {
+  return {
+    id: q.id,
+    owner: q.owner,
+    account_id: q.account_id,
+    territory: q.territory,
+    region: q.region,
+    delivery_option: q.delivery_option,
+    terms: q.terms,
+    lines: q.lines,
+    order_discount_pct: q.order_discount_pct,
+    order_discount_reason: q.order_discount_reason,
+    created_at: q.created_at,
+    approvals: q.approvals,
+    events: q.events,
+  }
+}
 
 function fields(input: QuoteInput) {
   return {
@@ -481,7 +499,7 @@ export function progress(q: QuoteRecord): Progress {
       return {
         phase: "sent",
         label: "Sent, awaiting customer signature",
-        detail: q.sign_by === null ? "" : `Sign by ${q.sign_by}`,
+        detail: `Sign by ${q.sign_by}`,
         tone: "info",
         next: "customer",
       }
@@ -489,7 +507,7 @@ export function progress(q: QuoteRecord): Progress {
       return {
         phase: "signed",
         label: "Signed",
-        detail: q.signed_at === null ? "" : `Signed ${q.signed_at}`,
+        detail: `Signed ${q.signed_at}`,
         tone: "success",
         next: null,
       }
