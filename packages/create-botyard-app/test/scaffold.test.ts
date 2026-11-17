@@ -34,9 +34,9 @@ describe("on failure", () => {
     expect(error).toBeInstanceOf(ScaffoldError)
     expect(String(error)).toContain(
       "Nothing was overwritten or deleted. Before it stopped, this run created " +
-        `${targetDir} itself and these entries in it:\n` +
+        `${targetDir} itself and these paths in it:\n` +
         "  .gitignore\n  .npmrc\n  botyard.json\n  package.json\n" +
-        "Anything else there was not created by this run. Check before removing it"
+        "This is a record of what this run created, not of what is there now"
     )
     // The partial package.json is reported, not removed.
     expect(await listFiles(targetDir)).toEqual([
@@ -91,11 +91,54 @@ describe("on failure", () => {
     const message = String(error)
     expect(message).toContain("botyard.json appeared while scaffolding")
     expect(message).toContain(
-      `this run created these entries in ${targetDir}:\n  .gitignore\n  .npmrc\nAnything else`
+      `this run created these paths in ${targetDir}:\n  .gitignore\n  .npmrc\nThis is a record`
     )
     expect(message).not.toContain("itself")
     expect(message).not.toMatch(/delete (it|the)/i)
     expect(await readFile(path.join(targetDir, "botyard.json"), "utf8")).toBe("theirs")
+  })
+
+  // Rivet's round-6 cases: a listed path is a history, not ownership.
+  const WARNING =
+    "another process may since have replaced any of these paths or added files inside them"
+
+  test("a listed file replaced by another process is not presented as ours to remove", async () => {
+    const cwd = await tempDir()
+    const targetDir = path.join(cwd, "my-app")
+    const meddle = async (file: string): Promise<void> => {
+      if (file.endsWith(".gitignore")) {
+        await rename(file, path.join(cwd, "ours-aside"))
+        await writeFile(file, "theirs")
+        await writeFile(path.join(targetDir, ".npmrc"), "theirs too")
+      }
+    }
+    const error = await scaffold({ ...base, targetDir, hooks: { afterCreate: meddle } }).catch(
+      (err: unknown) => err
+    )
+    const message = String(error)
+    expect(message).toContain(".npmrc appeared while scaffolding")
+    expect(message).toContain("  .gitignore\n")
+    expect(message).toContain(WARNING)
+    expect(message).toContain("Check what is at each path before removing anything")
+    expect(message).not.toMatch(/can (safely )?be removed|safe to remove/i)
+    expect(await readFile(path.join(targetDir, ".gitignore"), "utf8")).toBe("theirs")
+  })
+
+  test("a listed directory with another process's file inside is flagged", async () => {
+    const cwd = await tempDir()
+    const targetDir = path.join(cwd, "my-app")
+    const beforeWrite = async (file: string): Promise<void> => {
+      if (file.endsWith("index.js")) {
+        await writeFile(path.join(targetDir, "src", "theirs.js"), "theirs")
+        throw Object.assign(new Error("EIO"), { code: "EIO" })
+      }
+    }
+    const message = String(
+      await scaffold({ ...base, targetDir, hooks: { beforeWrite } }).catch((err: unknown) => err)
+    )
+    expect(message).toContain("  src/\n")
+    expect(message).toContain(WARNING)
+    expect(await readFile(path.join(targetDir, "src", "theirs.js"), "utf8")).toBe("theirs")
   })
 
   // The interval Rivet found in rollback: ours checked, then another process

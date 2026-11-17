@@ -37,11 +37,11 @@ valid npm package name.
 - It does **not** install dependencies or run any of the app's scripts. You
   run `npm install` yourself, after reading what it will install.
 - It never overwrites or deletes anything. If it fails part-way, it leaves
-  what it created and lists exactly those entries, so you can remove them
-  and keep anything else in the directory.
-  Another process renaming directories in the target's path while it runs
-  can make it fail, and in rare cases leave new files where that process
-  pointed.
+  what it created and lists the paths it created. That list records what the
+  run did, not what is there now: another process may have replaced a path
+  or added files inside one, so check before removing anything. Another
+  process renaming directories in the target's path while it runs can make
+  it fail, and in rare cases leave new files where that process pointed.
 - The package has no dependencies and no install scripts.
 
 ## License

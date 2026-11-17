@@ -73,9 +73,9 @@ export async function listTemplates(templatesDir: string): Promise<string[]> {
  * - Before reporting success it checks, by device and inode, that the target
  *   and every entry it created are still at their paths.
  * - It never deletes anything. If it fails part-way, what it created stays,
- *   and the error lists exactly those entries: removing a path after
- *   checking it is ours can never be atomic, so cleanup is left to the user,
- *   who can see what else is there.
+ *   and the error lists the paths it created, warning that another process
+ *   may have changed them since: removing a path after checking it is ours
+ *   can never be atomic, so cleanup is left to the user.
  *
  * Limit (Node has no `openat`): exclusive creation protects only the last
  * path segment. A concurrent process that can rename directories on the
@@ -263,8 +263,9 @@ async function verify(expected: readonly Created[], targetDir: string): Promise<
 
 /**
  * The error to report for a failed run. When it created anything, the message
- * lists exactly what, so the user can remove those entries and keep anything
- * else that is there: it cannot know what another process added.
+ * lists the paths it created, as a record of what this run did, not as proof
+ * of what is there now: another process may have replaced any of them or
+ * added files inside them, so the user must check before removing anything.
  */
 function withCreatedList(
   err: unknown,
@@ -274,18 +275,20 @@ function withCreatedList(
 ): Error {
   let note = ""
   if (madeTarget || created.length > 0) {
-    const lines = created.map(
+    const paths = created.map(
       (item) => `  ${path.relative(targetDir, item.file)}${item.dir ? "/" : ""}`
     )
-    let what = `these entries in ${targetDir}`
-    if (madeTarget)
-      what =
-        created.length > 0 ? `${targetDir} itself and these entries in it` : `${targetDir} itself`
-    const list = lines.length > 0 ? `:\n${lines.join("\n")}` : "."
+    let what = `these paths in ${targetDir}`
+    if (madeTarget) {
+      what = paths.length > 0 ? `${targetDir} itself and these paths in it` : `${targetDir} itself`
+    }
+    const list = paths.length > 0 ? `:\n${paths.join("\n")}` : "."
     note = [
       `\n\nNothing was overwritten or deleted. Before it stopped, this run created ${what}${list}`,
-      "Anything else there was not created by this run. Check before removing it, " +
-        "then try again in a new or empty directory.",
+      "This is a record of what this run created, not of what is there now: another " +
+        "process may since have replaced any of these paths or added files inside them, " +
+        "and nothing else there was created by this run. Check what is at each path " +
+        "before removing anything, then try again in a new or empty directory.",
     ].join("\n")
   }
   if (err instanceof ScaffoldError) return new ScaffoldError(`${err.message}${note}`)
