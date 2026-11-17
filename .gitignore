@@ -6,3 +6,5 @@ coverage/
 .env.*
 !.env.example
 .DS_Store
+# Build output: the templates bundled into the create-botyard-app package.
+packages/create-botyard-app/templates/

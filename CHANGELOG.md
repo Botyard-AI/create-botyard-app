@@ -19,6 +19,14 @@ Packages are released separately. A release section is headed
   config in `tooling/eslint-config` and a type-aware zero-`any` layer, Prettier,
   Vitest 4, knip, TypeScript 5.9.3 and a shared `tsconfig.base.json`. CI runs
   lint, format check, typecheck, test, build and knip.
+- `create-botyard-app`: the real CLI, replacing the placeholder.
+  `create-botyard-app <directory> [--template <name>] [--name <name>]` copies
+  a template bundled in the package into a new or empty directory, then names
+  the app in its `package.json` and `botyard.json`. It downloads nothing,
+  installs nothing, and never overwrites or deletes anything; if it fails
+  part-way it leaves what it created and lists the paths it created, as a
+  record to check rather than a list to delete. The build bundles the
+  repository's `templates/` into the package.
 
 ### Changed
 
