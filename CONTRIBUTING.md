@@ -34,6 +34,13 @@ changelog when we land it.
   to the versions in `packages/*/package.json`, and fails unless each is the
   current `latest` on npm and locked as published, so release an SDK package
   before a template that needs it. The build needs the npm registry.
+- `examples/` holds standalone apps scaffolded with the published
+  `create-botyard-app` and built on our packages **as published on npm**:
+  exact versions in `dependencies`, never `workspace:*`, with their own
+  `package-lock.json`. They are outside the pnpm workspace; the root lint,
+  format and knip skip them, and `scripts/check-examples.sh` (run by CI)
+  installs each one with `npm ci` and runs its own checks. After changing an
+  example's dependencies, run `scripts/lock-template.sh examples/<name>`.
 - Third-party actions are pinned to full commit SHAs and must be on the
   allow-list in `scripts/apply-repo-settings.sh`.
 - Repository settings are code: change `.github/rulesets/` or
