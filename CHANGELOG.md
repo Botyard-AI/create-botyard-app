@@ -19,7 +19,19 @@ Packages are released separately. A release section is headed
   config in `tooling/eslint-config` and a type-aware zero-`any` layer, Prettier,
   Vitest 4, knip, TypeScript 5.9.3 and a shared `tsconfig.base.json`. CI runs
   lint, format check, typecheck, test, build and knip.
-- `create-botyard-app`: the real CLI, replacing the placeholder.
+
+### Changed
+
+- `@botyard/botpage`: exported object types are declared with `type` instead
+  of `interface`, as the Botyard TypeScript standard requires. Nothing changes
+  at runtime, and the emitted JavaScript is the same. For TypeScript users,
+  these types can no longer be extended through declaration merging.
+
+## [create-botyard-app@0.1.0] - 2026-11-17
+
+### Added
+
+- The real CLI, replacing the placeholder.
   `create-botyard-app <directory> [--template <name>] [--name <name>]` copies
   a template bundled in the package into a new or empty directory, then names
   the app in its `package.json` and `botyard.json`. It downloads nothing,
@@ -27,7 +39,7 @@ Packages are released separately. A release section is headed
   part-way it leaves what it created and lists the paths it created, as a
   record to check rather than a list to delete. The build bundles the
   repository's `templates/` into the package.
-- `create-botyard-app`: the `full-app` template, the default. A Node API on
+- The `full-app` template, the default. A Node API on
   `@botyard/runtime` and `@botyard/botpage`, listening on `127.0.0.1` only,
   and a Vite, React 19, Tailwind CSS v4 and shadcn/ui front end with a badge
   for the signed-in viewer. `botyard.json` names the Bot Page and its port;
@@ -36,13 +48,6 @@ Packages are released separately. A release section is headed
   exact version in a committed, integrity-checked `package-lock.json`, and
   install scripts are off. The CLI build pins the template's
   `@botyard/*` dependencies to their published `latest` versions.
-
-### Changed
-
-- `@botyard/botpage`: exported object types are declared with `type` instead
-  of `interface`, as the Botyard TypeScript standard requires. Nothing changes
-  at runtime, and the emitted JavaScript is the same. For TypeScript users,
-  these types can no longer be extended through declaration merging.
 
 ## [@botyard/runtime@0.1.1] - 2026-11-16
 
