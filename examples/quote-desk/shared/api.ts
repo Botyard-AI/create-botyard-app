@@ -35,6 +35,11 @@ export type Endpoint<
 > = {
   readonly method: Method
   readonly path: P
+  /**
+   * Whether a request carries a JSON body. False exactly when `body` is
+   * `noBody`; the helpers below set both together.
+   */
+  readonly sendsBody: boolean
   /** The request body's parser. `noBody` for endpoints that take none. */
   readonly body: (value: unknown) => B
   /** The query's parser. */
@@ -47,21 +52,35 @@ export type Endpoint<
 
 const noQuery = () => null
 
+/** Reads something; no body. */
 const get = <P extends string, R>(path: P, response: (value: unknown) => R) => ({
   method: "GET" as const,
   path,
+  sendsBody: false,
   body: noBody,
   query: noQuery,
   response,
   status: 200 as const,
 })
 
+/** Sends a JSON body. */
 const post = <P extends string, B, R>(
   path: P,
   body: (value: unknown) => B,
   response: (value: unknown) => R,
   status: 200 | 201 = 200
-) => ({ method: "POST" as const, path, body, query: noQuery, response, status })
+) => ({ method: "POST" as const, path, sendsBody: true, body, query: noQuery, response, status })
+
+/** Does something to a resource; no body. */
+const action = <P extends string, R>(path: P, response: (value: unknown) => R) => ({
+  method: "POST" as const,
+  path,
+  sendsBody: false,
+  body: noBody,
+  query: noQuery,
+  response,
+  status: 200 as const,
+})
 
 export const API = {
   meta: get("/api/meta", parseMeta),
@@ -74,11 +93,11 @@ export const API = {
     ...post("/api/quotes/:id", parseQuoteInput, parseQuoteView),
     method: "PUT" as const,
   },
-  submitQuote: post("/api/quotes/:id/submit", noBody, parseQuoteView),
-  sendQuote: post("/api/quotes/:id/send", noBody, parseQuoteView),
-  signQuote: post("/api/quotes/:id/sign", noBody, parseQuoteView),
+  submitQuote: action("/api/quotes/:id/submit", parseQuoteView),
+  sendQuote: action("/api/quotes/:id/send", parseQuoteView),
+  signQuote: action("/api/quotes/:id/sign", parseQuoteView),
   quarter: { ...get("/api/quarter", parseQuarter), query: parseQuarterQuery },
-  reset: post("/api/reset", noBody, parseResetResult),
+  reset: action("/api/reset", parseResetResult),
 } as const satisfies Record<string, Endpoint>
 
 // ---------- path parameters, typed from the path ----------

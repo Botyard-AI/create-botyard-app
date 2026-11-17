@@ -60,13 +60,12 @@ export async function call<P extends string, B, R, Q extends Query>(
   args: NoInfer<CallArgs<P, B, Q>>
 ): Promise<R> {
   const path = fillPath(def.path, args.params)
-  // Entries without a body (null) send none, which the server reads as {}.
-  const payload: unknown = args.body
   const res = await fetch(`${path}${queryString(args.query)}`, {
     method: def.method,
     headers: { accept: "application/json", "content-type": "application/json" },
     signal: args.signal ?? null,
-    ...(payload !== null && { body: JSON.stringify(payload) }),
+    // Entries without a body send none, which the server reads as {}.
+    ...(def.sendsBody && { body: JSON.stringify(args.body) }),
   })
   const answer: unknown = await res.json().catch(() => null)
   if (!res.ok) {

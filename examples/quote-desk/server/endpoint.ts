@@ -37,7 +37,7 @@ export function endpoint<P extends string, B, R, Q extends Query>(
       requireMember(
         botpage,
         async (rq, rs, member) => {
-          const body = def.body(def.method === "GET" ? {} : await readJson(rq))
+          const body = def.body(def.sendsBody ? await readJson(rq) : {})
           const query = def.query(new URL(rq.url ?? "/", "http://localhost").searchParams)
           const param = (name: ParamName<P>): string => {
             const value = params[name]
