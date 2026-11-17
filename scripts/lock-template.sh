@@ -26,11 +26,16 @@ OWN="@botyard/runtime @botyard/botpage"
 name="${1:?usage: scripts/lock-template.sh <template> | examples/<name>}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 case "$name" in
-  examples/*/* | examples/ | examples) echo "usage: examples/<name>" >&2; exit 1 ;;
-  examples/*) kind=example; template="$root/$name" ;;
-  */*) echo "no template $name" >&2; exit 1 ;;
-  *) kind=template; template="$root/templates/$name"; name="templates/$name" ;;
+  examples/*) kind=example; dir=examples; base="${name#examples/}" ;;
+  *) kind=template; dir=templates; base="$name" ;;
 esac
+# One plain directory name: no "..", no further slashes, no symlink out of $dir.
+if ! [[ "$base" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || [ -L "$root/$dir/$base" ]; then
+  echo "usage: scripts/lock-template.sh <template> | examples/<name>" >&2
+  exit 1
+fi
+name="$dir/$base"
+template="$root/$name"
 [ -f "$template/package.json" ] || { echo "no $kind $name" >&2; exit 1; }
 
 work="$(mktemp -d)"

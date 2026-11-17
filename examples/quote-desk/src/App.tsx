@@ -1,51 +1,162 @@
+import { RotateCcw } from "lucide-react"
 import { useEffect, useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import type { Meta } from "../shared/types.ts"
+import { Notice } from "@/components/ui/bits"
+import { Button } from "@/components/ui/button"
 import { ViewerBadge, type ViewerState } from "@/components/viewer-badge"
+import { BuildPage } from "@/features/build/build-page"
+import { QuarterClose } from "@/features/quarter-close"
+import { QuotesPage } from "@/features/quotes/quotes-page"
 import { fetchViewer } from "@/lib/api"
+import { getMeta, resetDemo } from "@/lib/quotes-api"
+import { href, useRoute, type Route } from "@/lib/route"
+import { cn } from "@/lib/utils"
+
+const TABS: readonly { route: Route; label: string }[] = [
+  { route: { tab: "build", quoteId: null }, label: "Build quote" },
+  { route: { tab: "quotes", quoteId: null }, label: "Quotes & approvals" },
+  { route: { tab: "quarter" }, label: "Quarter close" },
+]
+
+type MetaState =
+  | { readonly state: "loading" }
+  | { readonly state: "error"; readonly message: string }
+  | { readonly state: "ready"; readonly meta: Meta }
 
 export default function App() {
-  const [state, setState] = useState<ViewerState>({ status: "loading" })
+  const [viewer, setViewer] = useState<ViewerState>({ status: "loading" })
+  const [meta, setMeta] = useState<MetaState>({ state: "loading" })
+  const [route, go] = useRoute()
+  const [generation, setGeneration] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
     fetchViewer(controller.signal)
-      .then((viewer) => {
-        setState({ status: "ready", viewer })
+      .then((v) => {
+        setViewer({ status: "ready", viewer: v })
       })
       .catch((err: unknown) => {
-        if (controller.signal.aborted) return
-        setState({ status: "error", message: err instanceof Error ? err.message : String(err) })
+        if (!controller.signal.aborted)
+          setViewer({ status: "error", message: err instanceof Error ? err.message : String(err) })
+      })
+    getMeta(controller.signal)
+      .then((m) => {
+        setMeta({ state: "ready", meta: m })
+      })
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted)
+          setMeta({ state: "error", message: err instanceof Error ? err.message : String(err) })
       })
     return () => {
       controller.abort()
     }
   }, [])
 
+  const viewerEmail =
+    viewer.status === "ready" && viewer.viewer?.kind === "member" ? viewer.viewer.email : null
+
+  const [confirmReset, setConfirmReset] = useState(false)
+
+  async function reset() {
+    setConfirmReset(false)
+    await resetDemo()
+    setGeneration((g) => g + 1)
+    go({ tab: "build", quoteId: null })
+  }
+
   return (
-    <div className="min-h-svh">
-      <header className="flex items-center justify-between gap-4 border-b px-6 py-3">
-        <span className="font-semibold">Botyard app</span>
-        <ViewerBadge state={state} />
+    <div className="bg-muted/30 min-h-svh">
+      <header className="bg-background sticky top-0 z-10 border-b">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-6 py-3">
+          <div className="flex items-center gap-6">
+            <span className="font-semibold">Quote desk</span>
+            <nav className="flex gap-1" aria-label="Sections">
+              {TABS.map((t) => (
+                <a
+                  key={t.label}
+                  href={href(t.route)}
+                  aria-current={t.route.tab === route.tab ? "page" : undefined}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    go(t.route)
+                  }}
+                  className={cn(
+                    "rounded-md px-3 py-1.5 text-sm",
+                    t.route.tab === route.tab
+                      ? "bg-primary text-primary-foreground"
+                      : "hover:bg-muted"
+                  )}
+                >
+                  {t.label}
+                </a>
+              ))}
+            </nav>
+          </div>
+          <div className="flex items-center gap-2">
+            {confirmReset ? (
+              <>
+                <Button variant="destructive" size="sm" onClick={() => void reset()}>
+                  Reset every quote?
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setConfirmReset(false)
+                  }}
+                >
+                  Keep
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setConfirmReset(true)
+                }}
+              >
+                <RotateCcw /> Reset demo
+              </Button>
+            )}
+            <ViewerBadge state={viewer} />
+          </div>
+        </div>
       </header>
-      <main className="mx-auto grid max-w-3xl gap-6 p-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>It works</CardTitle>
-            <CardDescription>
-              A Node API and a React UI, served from your bot as a Bot Page.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="text-muted-foreground grid gap-2 text-sm">
-            <p>
-              Edit <code>src/App.tsx</code> for the UI and <code>server/app.ts</code> for the API.
-              The badge above comes from <code>/api/me</code>, which asks{" "}
-              <code>@botyard/botpage</code> who is viewing.
-            </p>
-            <p>
-              Call Botyard tools from the server with <code>@botyard/runtime</code>.
-            </p>
-          </CardContent>
-        </Card>
+      <main key={generation} className="mx-auto max-w-7xl p-6">
+        {meta.state === "loading" ? (
+          <p className="text-muted-foreground text-sm">Loading…</p>
+        ) : null}
+        {meta.state === "error" ? (
+          <Notice tone="error" role="alert">
+            Could not load the quote desk: {meta.message}
+          </Notice>
+        ) : null}
+        {meta.state === "ready" && route.tab === "build" ? (
+          <BuildPage
+            meta={meta.meta}
+            viewerEmail={viewerEmail}
+            quoteId={route.quoteId}
+            onSaved={(id) => {
+              go({ tab: "quotes", quoteId: id })
+            }}
+            onCancel={() => {
+              go({ tab: "quotes", quoteId: route.quoteId })
+            }}
+          />
+        ) : null}
+        {meta.state === "ready" && route.tab === "quotes" ? (
+          <QuotesPage
+            selected={route.quoteId}
+            onSelect={(id) => {
+              go({ tab: "quotes", quoteId: id })
+            }}
+            onEdit={(id) => {
+              go({ tab: "build", quoteId: id })
+            }}
+          />
+        ) : null}
+        {meta.state === "ready" && route.tab === "quarter" ? <QuarterClose /> : null}
       </main>
     </div>
   )
