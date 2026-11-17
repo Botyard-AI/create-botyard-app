@@ -2,7 +2,16 @@
 // the reviewer bot gets its tasks on, the tasks themselves, and the files the
 // reviewer attaches to them.
 import type { ToolCaller } from "@botyard/runtime"
-import { isRecord, items, list, num, record, str, type Rec } from "../../shared/narrow.ts"
+import {
+  isRecord,
+  items,
+  list,
+  num,
+  record,
+  str,
+  strOrNull,
+  type Rec,
+} from "../../shared/narrow.ts"
 
 /** The columns the handoff needs, by id. A board may have more. */
 export const REVIEW_COLUMNS = [
@@ -40,19 +49,25 @@ export function missingColumns(board: Board): string[] {
   return REVIEW_COLUMNS.filter((c) => !ids.has(c.id)).map((c) => `${c.name} (${c.id})`)
 }
 
-/** get_workforce_members: the ids of the board's bot members. */
-export async function boardBotIds(tools: ToolCaller, slug: string): Promise<Set<string>> {
+/** get_workforce_members: the board's bot members. */
+export async function boardBots(tools: ToolCaller, slug: string) {
   const at = "get_workforce_members"
   const r = record(await tools.call(at, { slug }), at)
-  return new Set(items(r, "members", at, 10_000, (v, p) => str(record(v, p), "bot_id", p, 80)))
+  return items(r, "members", at, 10_000, (v, p) => {
+    const m = record(v, p)
+    return { id: str(m, "bot_id", p, 80), name: str(m, "bot_name", p) }
+  })
 }
+
+/** The review board's name. Board names are unique in an org. */
+export const REVIEW_BOARD_NAME = "Quote desk reviews"
 
 /** create_workforce: a board with just the review columns. Returns its slug. */
 export async function createReviewBoard(tools: ToolCaller): Promise<string> {
   const at = "create_workforce"
   const r = record(
     await tools.call(at, {
-      name: "Quote desk reviews",
+      name: REVIEW_BOARD_NAME,
       description:
         "Finance reviews from the Quote desk. The reviewer bot moves each task to Approved " +
         "or Changes requested and attaches verdict.json.",
@@ -102,6 +117,13 @@ const taskFile = (v: unknown, p: string) => {
     id: str(f, "id", p, 80),
     filename: str(f, "filename", p, 500),
     content_length: num(f, "content_length", p),
+    /** SHA-256 of the content, hex, as the platform recorded it. */
+    content_hash: str(f, "content_hash", p, 128),
+    /**
+     * The bot that first uploaded the file, set by the platform from the
+     * caller's identity. Null for a person's or an API key's upload.
+     */
+    uploaded_by_bot_id: strOrNull(f, "uploaded_by_bot_id", p, 80),
     download_url: str(f, "download_url", p, 8000),
   }
 }

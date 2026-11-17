@@ -4,7 +4,10 @@
 // The link is a credential for that file. It is fetched only from hosts the
 // operator allowed (QUOTE_DESK_FILE_HOSTS), over https, without following
 // redirects, within a size and time limit, and it never appears in an error,
-// a log line or the UI. Errors name the host at most.
+// a log line or the UI. Errors are written here, never passed on from fetch or
+// the stream, and name the host at most. The bytes must match the SHA-256 the
+// platform listed for the file, so what is read is what was listed.
+import { createHash } from "node:crypto"
 import { DECISIONS } from "../../shared/domain.ts"
 import { ParseError, oneOf, record, str } from "../../shared/narrow.ts"
 import type { ReviewColumn } from "./workforce.ts"
@@ -85,11 +88,15 @@ export function hostOf(link: string): string | null {
 
 export type Fetch = (url: string, init: RequestInit) => Promise<Response>
 
-/** Reads a small file from a presigned link, within the limits above. */
+/**
+ * Reads a small file from a presigned link, within the limits above. With
+ * `sha256` (hex), the bytes must hash to it.
+ */
 export async function fetchSmallFile(
   link: string,
   allowed: ReadonlySet<string>,
-  fetchImpl: Fetch = fetch
+  fetchImpl: Fetch = fetch,
+  sha256: string | null = null
 ): Promise<string> {
   let url: URL
   try {
@@ -116,36 +123,45 @@ export async function fetchSmallFile(
     throw new FileFetchError("failed", `${host} could not be read (timeout, redirect or network)`)
   }
   if (!res.ok) throw new FileFetchError("failed", `${host} answered ${String(res.status)}`)
-  return readCapped(res, host)
-}
-
-async function readCapped(res: Response, host: string): Promise<string> {
-  const declared = Number(res.headers.get("content-length") ?? "0")
-  if (declared > MAX_VERDICT_BYTES)
-    throw new FileFetchError(
-      "refused",
-      `the file on ${host} is larger than ${String(MAX_VERDICT_BYTES)} bytes`
-    )
-  if (res.body === null) return ""
-  const reader: ReadableStreamDefaultReader<Uint8Array> = res.body.getReader()
-  const chunks: Uint8Array[] = []
-  let size = 0
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    size += value.byteLength
-    if (size > MAX_VERDICT_BYTES) {
-      await reader.cancel()
-      throw new FileFetchError(
-        "refused",
-        `the file on ${host} is larger than ${String(MAX_VERDICT_BYTES)} bytes`
-      )
-    }
-    chunks.push(value)
-  }
+  const bytes = await readCapped(res, host)
+  if (sha256 !== null && createHash("sha256").update(bytes).digest("hex") !== sha256.toLowerCase())
+    throw new FileFetchError("failed", `the file on ${host} is not the one listed on the task`)
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks))
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
   } catch {
     throw new FileFetchError("refused", `the file on ${host} is not UTF-8 text`)
   }
+}
+
+/** The body, up to the cap. Any stream error becomes a FileFetchError of our own. */
+async function readCapped(res: Response, host: string): Promise<Buffer> {
+  const tooBig = () =>
+    new FileFetchError(
+      "refused",
+      `the file on ${host} is larger than ${String(MAX_VERDICT_BYTES)} bytes`
+    )
+  const declared = Number(res.headers.get("content-length") ?? "0")
+  if (declared > MAX_VERDICT_BYTES) throw tooBig()
+  if (res.body === null) return Buffer.alloc(0)
+  const reader: ReadableStreamDefaultReader<Uint8Array> = res.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > MAX_VERDICT_BYTES) {
+        // Stop reading; whatever cancelling says is not passed on.
+        await reader.cancel().catch(() => undefined)
+        throw tooBig()
+      }
+      chunks.push(value)
+    }
+  } catch (err) {
+    if (err instanceof FileFetchError) throw err
+    // A stream error may quote the link: say only that it broke off.
+    throw new FileFetchError("failed", `the download from ${host} broke off`)
+  }
+  return Buffer.concat(chunks)
 }

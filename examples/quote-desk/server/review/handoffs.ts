@@ -4,6 +4,11 @@
 // A handoff belongs to one submission of a quote (`round`, the time it entered
 // finance review). A quote sent back and resubmitted is a new round: the old
 // handoff no longer applies, and the reviewer gets a new task.
+//
+// Kinds: `creating` is saved before the task is created, so a crash or a failed
+// save after the create can't lead to a second task: a `creating` handoff found
+// later is never created again (it goes manual). `task` is a task being
+// watched, bound to the reviewer it was assigned to. `manual` is a person's job.
 import { items, num, oneOf, record, str, strOrNull, type Rec } from "../../shared/narrow.ts"
 
 const at = "handoffs"
@@ -17,9 +22,23 @@ function common(r: Rec, p: string) {
   }
 }
 
+/** The reviewer bot a task was assigned to. Only its verdict counts. */
+function reviewer(value: unknown, p: string) {
+  const r = record(value, p)
+  return { id: str(r, "id", p, 80), slug: str(r, "slug", p, 63), name: str(r, "name", p) }
+}
+
 function handoff(value: unknown, p: string) {
   const r = record(value, p)
-  const kind = oneOf(r, "kind", ["task", "manual"], p)
+  const kind = oneOf(r, "kind", ["creating", "task", "manual"], p)
+  if (kind === "creating") {
+    return {
+      ...common(r, p),
+      kind,
+      board: str(r, "board", p, 63),
+      reviewer: reviewer(r["reviewer"], `${p}.reviewer`),
+    }
+  }
   if (kind === "manual") {
     return {
       ...common(r, p),
@@ -34,6 +53,7 @@ function handoff(value: unknown, p: string) {
     ...common(r, p),
     kind,
     board: str(r, "board", p, 63),
+    reviewer: reviewer(r["reviewer"], `${p}.reviewer`),
     task_id: str(r, "task_id", p, 80),
     task_number: num(r, "task_number", p),
     /** The column at the last check. */
@@ -56,6 +76,8 @@ export function parseHandoffs(value: unknown) {
 
 export type Handoff = ReturnType<typeof handoff>
 export type TaskHandoff = Extract<Handoff, { kind: "task" }>
+export type CreatingHandoff = Extract<Handoff, { kind: "creating" }>
+export type Reviewer = TaskHandoff["reviewer"]
 export type ManualHandoff = Extract<Handoff, { kind: "manual" }>
 
 export class HandoffStore {
@@ -80,6 +102,12 @@ export class HandoffStore {
   /** Saves, then publishes: a failed save changes nothing. */
   set(h: Handoff): void {
     this.#commit(new Map([...this.#byQuote, [h.quote_id, h]]))
+  }
+
+  /** Forgets a quote's handoff. */
+  delete(quoteId: string): void {
+    if (!this.#byQuote.has(quoteId)) return
+    this.#commit(new Map([...this.#byQuote].filter(([id]) => id !== quoteId)))
   }
 
   /** Forgets the handoffs of quotes `keep` refuses. */

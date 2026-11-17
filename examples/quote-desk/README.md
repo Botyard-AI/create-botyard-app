@@ -62,7 +62,8 @@ workforce board, and reads the verdict back from the task.
    you pick a board this bot is already on.
 3. The reviewer bot must be a member of the board. No tool adds another bot to
    a board, so the reviewer joins it itself (`join_workforce`). Until it does,
-   the quote page says who to ask, with the request to copy.
+   the quote page says who to ask, with the request to copy. No other bot
+   may be on the board: any bot on it could answer for the reviewer.
 4. Optional: a **handoff thread**, the id of a conversation of this bot's. When
    it is set, each handoff also nudges the reviewer bot there
    (`send_message_to_bot`). When it is not, nothing is sent.
@@ -80,12 +81,17 @@ waiting for the reviewer bot:
   often, up to every 5 minutes. Only quotes in finance review are checked.
 - When the task is in `approved` or `changes-requested`, the app reads
   `verdict.json` from it and records the decision as the reviewer bot's.
+- The task is created only once per submission. The app saves its intent
+  first. If it stops between the create and saving the task (a crash, a full
+  disk), it never creates the task again: the quote goes to people, and the
+  page says to check the board for the task.
 
 The quote page shows the task, its column, and how long it has waited.
 
 **When the bot can't do it, people do.** If the board isn't set, isn't
-there, lacks a column or the reviewer isn't on it, or the task disappears, or
-the verdict can't be read, the quote goes back to people. The page says why
+there, lacks a column, the reviewer isn't on it or another bot is, the task
+disappears, the reviewer in Settings changes mid-review, or the verdict
+can't be read or isn't the reviewer's, the quote goes back to people. The page says why
 and since when. A finance approver then records the reviewer bot's decision
 from the quote page. Nothing else stops working.
 
@@ -115,7 +121,30 @@ sends the quote to people instead.
 **Reading `verdict.json`.** The download link is presigned: it is a credential.
 The app never logs it, stores it or shows it. It reads the link only over
 https, from a host in `QUOTE_DESK_FILE_HOSTS`, with no redirects. The file may
-be at most 16 KiB and must arrive within 10 seconds.
+be at most 16 KiB and must arrive within 10 seconds. Errors say which host
+failed, never the link.
+
+**Whose verdict it is.** Only the reviewer the task was assigned to can
+answer it. The app checks three things:
+
+- The platform must attribute `verdict.json` to that reviewer bot.
+- The bytes the app reads must match the SHA-256 the platform lists for the
+  file.
+- No other bot may be on the board.
+
+It records the decision under that reviewer's name, even if Settings has
+changed since.
+
+**Limit: the board is not locked down.** Two things are out of the app's reach:
+
+- New boards are open to the whole org, and the app can't check or change
+  that.
+- When a file is overwritten, the platform keeps the first uploader's name.
+
+So anyone who can write to the board's tasks could replace the reviewer's
+`verdict.json` and still have it read as the reviewer's. The finance
+approver's own decision is still needed, but treat the reviewer bot's verdict
+as advice, and keep the review board restricted to the reviewer and this bot.
 
 ## Security notes
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { describe, expect, test } from "vitest"
 import {
   FileFetchError,
@@ -73,6 +74,31 @@ describe("fetching verdict.json", () => {
     const network = await refused(LINK, () => Promise.reject(new Error(`boom ${LINK}`)))
     expect(network.kind).toBe("failed")
     for (const err of [status, network]) expect(err.message).not.toContain("X-Amz")
+  })
+
+  test("a stream that fails mid-read, quoting the link, is reported without it", async () => {
+    const failing = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("{"))
+      },
+      pull(controller) {
+        controller.error(new Error(`socket hang up ${LINK}`))
+      },
+    })
+    const err = await refused(LINK, serving(failing))
+    expect(err.kind).toBe("failed")
+    expect(err.message).toBe("the download from files.example.org broke off")
+    expect(err.message).not.toContain("X-Amz")
+  })
+
+  test("the bytes must match the listed SHA-256", async () => {
+    const body = '{"a":1}'
+    const hash = createHash("sha256").update(body).digest("hex")
+    await expect(fetchSmallFile(LINK, HOSTS, serving(body), hash)).resolves.toBe(body)
+    await expect(fetchSmallFile(LINK, HOSTS, serving(body), hash.toUpperCase())).resolves.toBe(body)
+    const err = await fetchSmallFile(LINK, HOSTS, serving('{"a":2}'), hash).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(FileFetchError)
+    expect(err).toMatchObject({ kind: "failed" })
   })
 })
 

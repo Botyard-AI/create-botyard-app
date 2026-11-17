@@ -10,9 +10,20 @@
 //
 // Anything that cannot work falls back to manual: a finance approver then
 // records the reviewer bot's verdict on the quote page. The relay never
-// creates a task nobody will pick up, and never retries a create whose outcome
-// is unknown.
-import { BotyardError, OutcomeUnknownError, ToolError, type ToolCaller } from "@botyard/runtime"
+// creates a task nobody will pick up, and never creates a second task for a
+// submission: the intent is saved before the create, and an intent found later
+// (a crash, a failed save, an unknown outcome) goes manual instead.
+//
+// Only the reviewer bot's own verdict counts. The board may hold no other
+// bots, verdict.json must be attributed by the platform to the reviewer the
+// task was assigned to, and its bytes must match the hash the platform lists.
+import {
+  BotyardError,
+  OutcomeUnknownError,
+  ToolError,
+  type Runtime,
+  type ToolCaller,
+} from "@botyard/runtime"
 import { ParseError } from "../../shared/narrow.ts"
 import type { HandoffView, QuoteView } from "../../shared/types.ts"
 import { listOrgBots } from "../org.ts"
@@ -20,7 +31,7 @@ import { DeskError, type QuoteDesk } from "../quotes/desk.ts"
 import { ERP_SEED } from "../quotes/erp-seed.ts"
 import type { SettingsStore } from "../quotes/settings.ts"
 import { brief } from "./brief.ts"
-import type { Handoff, HandoffStore, TaskHandoff } from "./handoffs.ts"
+import type { CreatingHandoff, Handoff, HandoffStore, Reviewer, TaskHandoff } from "./handoffs.ts"
 import {
   FileFetchError,
   VERDICT_FILE,
@@ -29,7 +40,7 @@ import {
   type Fetch,
 } from "./verdict.ts"
 import {
-  boardBotIds,
+  boardBots,
   createReviewTask,
   missingColumns,
   myBoards,
@@ -49,6 +60,9 @@ const DESK = "Quote desk"
 
 export const NOT_SET_UP =
   "Reviewer bot handoff isn't set up: ask an admin to pick a board in Settings."
+
+/** The tools the relay calls, and this bot's own identity. */
+export type RelayTools = ToolCaller & Pick<Runtime, "getIdentity">
 
 /** The reviewer handoff can run: the board and the reviewer bot on it. */
 export type ReviewSetup =
@@ -72,7 +86,7 @@ export function joinInstruction(reviewer: string, board: string): string {
  * quote page and Settings.
  */
 export async function checkSetup(
-  tools: ToolCaller,
+  tools: RelayTools,
   settings: { reviewer_bot: string | null; review_board: string | null }
 ): Promise<ReviewSetup> {
   const off = (reason: string, instruction: string | null = null): ReviewSetup => ({
@@ -90,12 +104,35 @@ export async function checkSetup(
   if (missing.length > 0) return off(`Board ${slug} is missing the columns ${missing.join(", ")}.`)
   const reviewer = (await listOrgBots(tools)).find((b) => b.slug === settings.reviewer_bot)
   if (reviewer === undefined) return off(`${settings.reviewer_bot} is not a bot in this org.`)
-  if (!(await boardBotIds(tools, slug)).has(reviewer.id))
+  const bots = await boardBots(tools, slug)
+  if (!bots.some((b) => b.id === reviewer.id))
     return off(
       `${reviewer.name} is not a member of board ${slug}.`,
       joinInstruction(reviewer.name, slug)
     )
+  const others = await otherBots(tools, bots, reviewer.id)
+  if (others.length > 0) return off(othersReason(slug, reviewer.name, others))
   return { kind: "ready", board: slug, reviewer }
+}
+
+/**
+ * Bots on the board besides the reviewer and this one. Any bot on the board
+ * can move a task and attach files, so none may be there.
+ */
+async function otherBots(
+  tools: RelayTools,
+  bots: readonly { id: string; name: string }[],
+  reviewerId: string
+): Promise<string[]> {
+  const self = (await tools.getIdentity()).bot.id
+  return bots.filter((b) => b.id !== reviewerId && b.id !== self).map((b) => b.name)
+}
+
+function othersReason(board: string, reviewer: string, others: readonly string[]): string {
+  return (
+    `Board ${board} has other bots on it (${others.join(", ")}). Any of them could answer ` +
+    `for ${reviewer}: use a board only ${reviewer} and this bot are on.`
+  )
 }
 
 /**
@@ -137,11 +174,17 @@ function answerInstructions(quoteId: string): string {
   ].join("\n")
 }
 
+/** What reading a task's verdict.json found. */
+type VerdictRead =
+  | { readonly kind: "missing" }
+  | { readonly kind: "untrusted"; readonly reason: string }
+  | { readonly kind: "read"; readonly text: string }
+
 export type RelayOptions = {
   readonly desk: QuoteDesk
   readonly settings: SettingsStore
   readonly handoffs: HandoffStore
-  readonly tools: ToolCaller
+  readonly tools: RelayTools
   /** Hosts verdict.json links may point at (QUOTE_DESK_FILE_HOSTS). */
   readonly fileHosts: ReadonlySet<string>
   readonly fetch?: Fetch
@@ -190,7 +233,7 @@ export class ReviewRelay {
     const round = awaiting(quote)
     if (round === null) return { kind: "none" }
     const h = this.#o.handoffs.get(quote.id)
-    if (h?.round !== round) return { kind: "pending" }
+    if (h?.round !== round || h.kind === "creating") return { kind: "pending" }
     if (h.kind === "manual")
       return { kind: h.kind, since: h.since, reason: h.reason, instruction: h.instruction }
     return {
@@ -225,13 +268,19 @@ export class ReviewRelay {
     const now = this.#now().getTime()
     const work = waiting.filter(({ quote }) => {
       const h = handoffs.get(quote.id)
-      return h === undefined || (h.kind === "task" && Date.parse(h.next_check_at) <= now)
+      return (
+        h === undefined ||
+        h.kind === "creating" ||
+        (h.kind === "task" && Date.parse(h.next_check_at) <= now)
+      )
     })
     let setup: Promise<ReviewSetup> | null = null
     for (const { quote, round } of work.slice(0, MAX_PER_TICK)) {
       const h = handoffs.get(quote.id)
       if (h?.kind === "task") {
         await this.#check(h)
+      } else if (h?.kind === "creating") {
+        this.#unfinishedCreate(h)
       } else {
         setup ??= checkSetup(this.#o.tools, this.#o.settings.get())
         await this.#handOff(quote, round, await setup)
@@ -247,6 +296,17 @@ export class ReviewRelay {
       return
     }
     const { board, reviewer } = setup
+    const bound: Reviewer = { id: reviewer.id, slug: reviewer.slug, name: reviewer.name }
+    // Saved first: if this throws, nothing is created. From here on, a create
+    // that is not followed by the task being saved is never repeated.
+    this.#o.handoffs.set({
+      kind: "creating",
+      quote_id: quote.id,
+      round,
+      since: this.#now().toISOString(),
+      board,
+      reviewer: bound,
+    })
     let task
     try {
       task = await createReviewTask(this.#o.tools, {
@@ -266,6 +326,7 @@ export class ReviewRelay {
       round,
       since: at.toISOString(),
       board,
+      reviewer: bound,
       task_id: task.id,
       task_number: task.number,
       column: task.column_id,
@@ -293,8 +354,10 @@ export class ReviewRelay {
       return
     }
     if (err instanceof BotyardError && !(err instanceof ToolError)) {
-      // Refused before the tool ran (transport): nothing was created; try next tick.
+      // Refused before the tool ran (transport): nothing was created; try next
+      // tick. If forgetting the intent fails, it stays, and goes manual.
       this.#log(`${quote.id}: could not reach the platform to create the task`)
+      this.#o.handoffs.delete(quote.id)
       return
     }
     this.#manual(
@@ -307,6 +370,15 @@ export class ReviewRelay {
     const budget = this.#o.desk.quarter().territories.find((t) => t.territory === quote.territory)
     const customer = ERP_SEED.customers.find((c) => c.account_id === quote.account_id)
     return brief({ quote, customer, budget, answer: answerInstructions(quote.id) })
+  }
+
+  /** An intent to create a task, left by a crash or a failed save: never created again. */
+  #unfinishedCreate(h: CreatingHandoff): void {
+    this.#manual(
+      h,
+      `Creating the review task on board ${h.board} was interrupted; the task may exist.`,
+      `Check board ${h.board} for a task on ${h.quote_id}, and record the reviewer's verdict here.`
+    )
   }
 
   /** Tells the reviewer a task is waiting, if a handoff thread is set. Silent otherwise. */
@@ -329,6 +401,13 @@ export class ReviewRelay {
   // ---------- checking a task ----------
 
   async #check(h: TaskHandoff): Promise<void> {
+    if (this.#o.settings.get().reviewer_bot !== h.reviewer.slug) {
+      this.#lost(
+        h,
+        `The reviewer bot in Settings is no longer ${h.reviewer.name}, who this task was for.`
+      )
+      return
+    }
     let column: string
     try {
       column = (await readTask(this.#o.tools, h.board, h.task_number)).column_id
@@ -366,31 +445,60 @@ export class ReviewRelay {
 
   async #verdict(h: TaskHandoff, column: ReviewColumn): Promise<void> {
     const moved = column === "approved" ? "Approved" : "Changes requested"
-    const waitForFile = (detail: string) => {
-      this.#later(h, { column, detail })
+    const waitFor = (why: string) => {
+      this.#later(h, { column, detail: `Moved to ${moved}; ${why}.` })
     }
-    let text: string
+    let read: VerdictRead
     try {
-      const files = await taskFilesNamed(this.#o.tools, h.board, h.task_id, VERDICT_FILE)
-      const file = files.at(-1)
-      if (file === undefined) {
-        waitForFile(`Moved to ${moved}; waiting for ${VERDICT_FILE}.`)
-        return
-      }
-      text = await fetchSmallFile(file.download_url, this.#o.fileHosts, this.#o.fetch)
+      read = await this.#readVerdict(h)
     } catch (err) {
+      // Only messages written here reach the page: never one from a tool or fetch.
       if (err instanceof FileFetchError && err.kind === "refused") {
         this.#lost(h, `${VERDICT_FILE} can't be read: ${err.message}.`)
         return
       }
-      waitForFile(`Moved to ${moved}; ${VERDICT_FILE} could not be read yet (${message(err)}).`)
+      waitFor(
+        err instanceof FileFetchError
+          ? `${VERDICT_FILE} could not be read yet (${err.message})`
+          : `the task's files could not be listed yet`
+      )
       return
     }
-    this.#record(h, column, text)
+    if (read.kind === "untrusted") {
+      this.#lost(h, read.reason)
+      return
+    }
+    if (read.kind === "missing") {
+      waitFor(`waiting for ${VERDICT_FILE}`)
+      return
+    }
+    this.#record(h, column, read.text)
+  }
+
+  /** verdict.json, if the reviewer bot the task was assigned to attached it. */
+  async #readVerdict(h: TaskHandoff): Promise<VerdictRead> {
+    const { tools, fileHosts } = this.#o
+    const others = await otherBots(tools, await boardBots(tools, h.board), h.reviewer.id)
+    if (others.length > 0)
+      return { kind: "untrusted", reason: othersReason(h.board, h.reviewer.name, others) }
+    const file = (await taskFilesNamed(tools, h.board, h.task_id, VERDICT_FILE)).at(0)
+    if (file === undefined) return { kind: "missing" }
+    if (file.uploaded_by_bot_id !== h.reviewer.id)
+      return {
+        kind: "untrusted",
+        reason: `${VERDICT_FILE} on the task was not attached by ${h.reviewer.name}, so it doesn't count.`,
+      }
+    const text = await fetchSmallFile(
+      file.download_url,
+      fileHosts,
+      this.#o.fetch,
+      file.content_hash
+    )
+    return { kind: "read", text }
   }
 
   #record(h: TaskHandoff, column: ReviewColumn, text: string): void {
-    const { desk, settings } = this.#o
+    const { desk } = this.#o
     let verdict
     try {
       verdict = parseVerdict(text, h.quote_id, column)
@@ -400,8 +508,8 @@ export class ReviewRelay {
     }
     const quote = desk.get(h.quote_id)
     if (awaiting(quote) !== h.round) return // decided or sent back meanwhile; the next pass prunes
-    const reviewer = settings.get().reviewer_bot ?? "reviewer bot"
-    const by = `${reviewer} (bot)`
+    // Recorded as the reviewer the task was assigned to, whatever Settings says now.
+    const by = `${h.reviewer.slug} (bot)`
     try {
       if (verdict.analysis !== "") desk.comment(h.quote_id, by, verdict.analysis)
       desk.decide(h.quote_id, "bot_review", verdict.decision, verdict.note, by)

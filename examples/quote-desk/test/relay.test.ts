@@ -1,7 +1,8 @@
 import { OutcomeUnknownError, ToolError, TransportError, type MockHandler } from "@botyard/runtime"
+import { createHash } from "node:crypto"
 import { describe, expect, test } from "vitest"
-import { HandoffStore } from "../server/review/handoffs.ts"
-import { NOT_SET_UP, ReviewRelay, checkSetup } from "../server/review/relay.ts"
+import { HandoffStore, type Handoff } from "../server/review/handoffs.ts"
+import { NOT_SET_UP, ReviewRelay, checkSetup, reviewRound } from "../server/review/relay.ts"
 import { REVIEW_COLUMNS } from "../server/review/workforce.ts"
 import { EMPTY_SETTINGS, SettingsStore } from "../server/quotes/settings.ts"
 import type { QuoteDesk } from "../server/quotes/desk.ts"
@@ -21,6 +22,7 @@ const STEP_1: QuoteInput = {
   order_discount_reason: "competitor match",
 }
 const FILES = "files.example.org"
+const sha256 = (text: string) => createHash("sha256").update(text).digest("hex")
 /** A presigned link carries a credential; it must never be shown or logged. */
 const SECRET = "X-Amz-Signature=deadbeef"
 const SETUP: DeskSettings = {
@@ -34,15 +36,21 @@ type Task = {
   number: number
   title: string
   column_id: string
-  files: Record<string, string>
+  /** By name: the content, and the bot the platform attributes it to (null: a person). */
+  files: Record<string, { body: string; by: string | null }>
 }
 
 /** The platform as the relay sees it: one board, its members, its tasks and files. */
 class FakePlatform {
   boards = [{ slug: "quote-reviews", name: "Quote reviews", columns: [...REVIEW_COLUMNS] }]
-  members = ["bot-host", "bot-reviewer"]
+  /** bot-dev is this bot (fixtures/dev.json identity). */
+  members = ["bot-dev", "bot-reviewer"]
   tasks: Task[] = []
   calls: { tool: string; args: Record<string, unknown> }[] = []
+  /** Set to list a different hash than the content's (storage changed under the listing). */
+  hashOverride: string | null = null
+  /** Set to make every download fail mid-stream with this message. */
+  streamError: string | null = null
   /** Errors to throw, by tool, consumed one per call. */
   failures: Record<string, Error[]> = {}
 
@@ -72,6 +80,11 @@ class FakePlatform {
     return this.calls.filter(
       (c) => c.tool === tool && (quoteId === undefined || this.#about(c.args, quoteId))
     ).length
+  }
+
+  /** Attaches verdict.json to the quote's latest task, as `by` (default: the reviewer). */
+  attach(quoteId: string, body: string, by: string | null = "bot-reviewer"): void {
+    this.task(quoteId).files["verdict.json"] = { body, by }
   }
 
   /** The latest task for a quote. */
@@ -112,10 +125,12 @@ class FakePlatform {
       case "list_task_files": {
         const t = this.tasks.find((x) => x.id === args["task_id"])
         return {
-          result: Object.keys(t?.files ?? {}).map((name, i) => ({
+          result: Object.entries(t?.files ?? {}).map(([name, f], i) => ({
             id: `file-${String(i)}`,
             filename: name,
-            content_length: 10,
+            content_length: f.body.length,
+            content_hash: this.hashOverride ?? sha256(f.body),
+            uploaded_by_bot_id: f.by,
             download_url: `https://${FILES}/${name}?${SECRET}`,
           })),
         }
@@ -132,20 +147,33 @@ class FakePlatform {
 function storage(platform: FakePlatform) {
   return async (url: string): Promise<Response> => {
     const name = new URL(url).pathname.slice(1)
-    const body = platform.tasks.flatMap((t) => (name in t.files ? [t.files[name]] : [])).at(-1)
-    return body === undefined ? new Response("missing", { status: 404 }) : new Response(body)
+    const body = platform.tasks.flatMap((t) => t.files[name]?.body ?? []).at(-1)
+    if (body === undefined) return new Response("missing", { status: 404 })
+    const failure = platform.streamError
+    if (failure === null) return new Response(body)
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.error(new Error(failure))
+        },
+      })
+    )
   }
 }
 
-function setup(settings: DeskSettings = SETUP, fileHosts: readonly string[] = [FILES]) {
+function setup(
+  settings: DeskSettings = SETUP,
+  fileHosts: readonly string[] = [FILES],
+  handoffs = new HandoffStore()
+) {
   const platform = new FakePlatform()
   const desk = memoryDesk()
-  const handoffs = new HandoffStore()
+  const store = new SettingsStore({ settings })
   let now = new Date("2026-11-10T09:00:00Z")
   const logs: string[] = []
   const relay = new ReviewRelay({
     desk,
-    settings: new SettingsStore({ settings }),
+    settings: store,
     handoffs,
     tools: platform.runtime,
     fileHosts: new Set(fileHosts),
@@ -157,7 +185,7 @@ function setup(settings: DeskSettings = SETUP, fileHosts: readonly string[] = [F
     now = new Date(now.getTime() + ms)
   }
   const submit = () => desk.submit(desk.create(STEP_1, ME, ME.name).id, ME.name).id
-  return { platform, desk, handoffs, relay, later, submit, logs }
+  return { platform, desk, handoffs, relay, later, submit, logs, settings: store }
 }
 
 function verdict(id: string, decision: string, extra: Record<string, unknown> = {}) {
@@ -182,7 +210,7 @@ describe("handing a quote to the reviewer bot", () => {
 
   test("a reviewer that isn't on the board gets no task, and the page says how to fix it", async () => {
     const { platform, relay, desk, submit } = setup()
-    platform.members = ["bot-host"]
+    platform.members = ["bot-dev"]
     const id = submit()
     await relay.tick()
     expect(relay.state(desk.get(id))).toMatchObject({
@@ -229,9 +257,12 @@ describe("handing a quote to the reviewer bot", () => {
     // No handoff thread: no nudge, and nothing logged.
     expect(platform.count("send_message_to_bot")).toBe(0)
 
-    platform.task(id).files["verdict.json"] = verdict(id, "approve", {
-      analysis: "Credit is fine.",
-    })
+    platform.attach(
+      id,
+      verdict(id, "approve", {
+        analysis: "Credit is fine.",
+      })
+    )
     platform.task(id).column_id = "approved"
     later(15_000)
     await relay.tick()
@@ -249,7 +280,7 @@ describe("handing a quote to the reviewer bot", () => {
     const { platform, relay, desk, later, submit } = setup()
     const id = submit()
     await relay.tick()
-    platform.task(id).files["verdict.json"] = verdict(id, "reject")
+    platform.attach(id, verdict(id, "reject"))
     platform.task(id).column_id = "changes-requested"
     later(15_000)
     await relay.tick()
@@ -260,7 +291,7 @@ describe("handing a quote to the reviewer bot", () => {
     const { platform, relay, desk, later, submit } = setup()
     const id = submit()
     await relay.tick()
-    platform.task(id).files["verdict.json"] = verdict(id, "reject")
+    platform.attach(id, verdict(id, "reject"))
     platform.task(id).column_id = "changes-requested"
     later(15_000)
     await relay.tick()
@@ -337,7 +368,7 @@ describe("waiting for the verdict", () => {
       kind: "task",
       detail: "Moved to Approved; waiting for verdict.json.",
     })
-    platform.task(id).files["verdict.json"] = verdict(id, "approve")
+    platform.attach(id, verdict(id, "approve"))
     later(30_000)
     await relay.tick()
     expect(desk.get(id).approvals.bot_review?.decision).toBe("approve")
@@ -347,7 +378,7 @@ describe("waiting for the verdict", () => {
     const { platform, relay, desk, later, submit } = setup()
     const id = submit()
     await relay.tick()
-    platform.task(id).files["verdict.json"] = verdict(id, "reject")
+    platform.attach(id, verdict(id, "reject"))
     platform.task(id).column_id = "approved"
     later(15_000)
     await relay.tick()
@@ -362,7 +393,7 @@ describe("waiting for the verdict", () => {
     const { platform, relay, desk, later, submit, logs } = setup(SETUP, ["other.example.org"])
     const id = submit()
     await relay.tick()
-    platform.task(id).files["verdict.json"] = verdict(id, "approve")
+    platform.attach(id, verdict(id, "approve"))
     platform.task(id).column_id = "approved"
     later(15_000)
     await relay.tick()
@@ -428,5 +459,161 @@ describe("checkSetup", () => {
       board: "quote-reviews",
       reviewer: { id: "bot-reviewer" },
     })
+  })
+})
+
+describe("only the reviewer's own verdict counts", () => {
+  async function moved(by: string | null) {
+    const t = setup()
+    const id = t.submit()
+    await t.relay.tick()
+    t.platform.attach(id, verdict(id, "approve"), by)
+    t.platform.task(id).column_id = "approved"
+    t.later(15_000)
+    await t.relay.tick()
+    return { ...t, id }
+  }
+
+  test.each([
+    ["another bot", "bot-other"],
+    ["a person", null],
+  ])("verdict.json attached by %s is not recorded", async (_who, by) => {
+    const { relay, desk, id } = await moved(by)
+    expect(desk.get(id).approvals.bot_review).toBeNull()
+    expect(relay.state(desk.get(id))).toMatchObject({
+      kind: "manual",
+      reason: "verdict.json on the task was not attached by Reviewer Bot, so it doesn't count.",
+    })
+  })
+
+  test("a board with another bot on it gets no task", async () => {
+    const { platform, relay, desk, submit } = setup()
+    platform.members = ["bot-dev", "bot-reviewer", "bot-other"]
+    const id = submit()
+    await relay.tick()
+    expect(platform.count("create_task", id)).toBe(0)
+    const state = relay.state(desk.get(id))
+    expect(state.kind).toBe("manual")
+    expect(JSON.stringify(state)).toContain("has other bots on it (bot-other)")
+  })
+
+  test("a bot joining the board mid-review voids the task", async () => {
+    const { platform, relay, desk, later, submit } = setup()
+    const id = submit()
+    await relay.tick()
+    platform.members.push("bot-other")
+    platform.attach(id, verdict(id, "approve"))
+    platform.task(id).column_id = "approved"
+    later(15_000)
+    await relay.tick()
+    expect(desk.get(id).approvals.bot_review).toBeNull()
+    expect(relay.state(desk.get(id))).toMatchObject({ kind: "manual" })
+  })
+
+  test("a new reviewer in Settings voids the old reviewer's task", async () => {
+    const { platform, relay, desk, later, submit, settings } = setup()
+    const id = submit()
+    await relay.tick()
+    settings.set({ ...settings.get(), reviewer_bot: "helper-bot" })
+    platform.attach(id, verdict(id, "approve"))
+    platform.task(id).column_id = "approved"
+    later(15_000)
+    await relay.tick()
+    expect(desk.get(id).approvals.bot_review).toBeNull()
+    expect(relay.state(desk.get(id))).toMatchObject({
+      kind: "manual",
+      reason: "The reviewer bot in Settings is no longer Reviewer Bot, who this task was for.",
+    })
+  })
+
+  test("bytes that don't match the listed hash are not recorded, and are read again later", async () => {
+    const { platform, relay, desk, later, submit } = setup()
+    const id = submit()
+    await relay.tick()
+    platform.attach(id, verdict(id, "approve"))
+    platform.task(id).column_id = "approved"
+    // Storage now holds something else than the platform listed.
+    platform.hashOverride = sha256("something else")
+    later(15_000)
+    await relay.tick()
+    expect(desk.get(id).approvals.bot_review).toBeNull()
+    expect(relay.state(desk.get(id))).toMatchObject({
+      kind: "task",
+      detail: `Moved to Approved; verdict.json could not be read yet (the file on ${FILES} is not the one listed on the task).`,
+    })
+  })
+})
+
+describe("a signed link never leaks", () => {
+  test("a stream that fails quoting the link leaves no trace of it", async () => {
+    const saved: string[] = []
+    const handoffs = new HandoffStore({ save: (h) => saved.push(JSON.stringify(h)) })
+    const t = setup(SETUP, [FILES], handoffs)
+    const id = t.submit()
+    await t.relay.tick()
+    t.platform.attach(id, verdict(id, "approve"))
+    t.platform.task(id).column_id = "approved"
+    t.platform.streamError = `socket hang up reading https://${FILES}/verdict.json?${SECRET}`
+    t.later(15_000)
+    await t.relay.tick()
+    const state = t.relay.state(t.desk.get(id))
+    expect(state).toMatchObject({
+      kind: "task",
+      detail: `Moved to Approved; verdict.json could not be read yet (the download from ${FILES} broke off).`,
+    })
+    for (const text of [JSON.stringify(state), history(t.desk, id), ...t.logs, ...saved])
+      expect(text).not.toContain(SECRET)
+  })
+})
+
+describe("one task per submission", () => {
+  test("a failed save after the create never leads to a second task", async () => {
+    let failTask = true
+    const handoffs = new HandoffStore({
+      save: (h) => {
+        if (failTask && h.some((x) => x.kind === "task")) throw new Error("disk full")
+      },
+    })
+    const { platform, relay, desk, later, submit } = setup(SETUP, [FILES], handoffs)
+    const id = submit()
+    await relay.tick()
+    expect(platform.count("create_task", id)).toBe(1)
+    failTask = false
+    later(60_000)
+    await relay.tick()
+    expect(platform.count("create_task", id)).toBe(1)
+    expect(relay.state(desk.get(id))).toMatchObject({
+      kind: "manual",
+      reason:
+        "Creating the review task on board quote-reviews was interrupted; the task may exist.",
+    })
+  })
+
+  test("after a crash mid-create, a restarted relay does not create again", async () => {
+    const saved: Handoff[][] = []
+    const handoffs = new HandoffStore({ save: (h) => saved.push([...h]) })
+    const { platform, desk, submit } = setup(SETUP, [FILES], handoffs)
+    const id = submit()
+    // The crash: the intent is on disk, the create went out, nothing after it.
+    handoffs.set({
+      kind: "creating",
+      quote_id: id,
+      round: reviewRound(desk.get(id)) ?? "",
+      since: "2026-11-10T09:00:00.000Z",
+      board: "quote-reviews",
+      reviewer: { id: "bot-reviewer", slug: "reviewer-bot", name: "Reviewer Bot" },
+    })
+    const restarted = new ReviewRelay({
+      desk,
+      settings: new SettingsStore({ settings: SETUP }),
+      handoffs: new HandoffStore({ handoffs: saved.at(-1) ?? [] }),
+      tools: platform.runtime,
+      fileHosts: new Set([FILES]),
+      fetch: storage(platform),
+      log: () => undefined,
+    })
+    await restarted.tick()
+    expect(platform.count("create_task", id)).toBe(0)
+    expect(restarted.state(desk.get(id))).toMatchObject({ kind: "manual" })
   })
 })
