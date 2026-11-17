@@ -33,6 +33,10 @@ export const STAGE_ROLES: Readonly<Record<ReviewStage, readonly ApproverRole[]>>
   business_review: BUSINESS_ROLES,
 }
 
+/** The approver roles people fill. The reviewer bot fills `bot_review`. */
+export const HUMAN_ROLES = ["finance", "business"] as const
+export type HumanRole = (typeof HUMAN_ROLES)[number]
+
 export const DECISIONS = ["approve", "reject"] as const
 export type Decision = (typeof DECISIONS)[number]
 

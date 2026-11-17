@@ -1,10 +1,55 @@
 import { CheckCircle2, CircleDashed, XCircle } from "lucide-react"
-import { APPROVER_ROLES, type QuoteView } from "../../shared/types.ts"
+import {
+  APPROVER_ROLES,
+  STAGE_ROLES,
+  type ApproverRole,
+  type HumanRole,
+  type QuoteView,
+  type SettingsView,
+} from "../../shared/types.ts"
+import { DecisionForm } from "@/components/decision-form"
 import { Panel } from "@/components/ui/bits"
 import { ROLE_LABEL } from "@/lib/format"
 
-/** Who has decided, and who is next. */
-export function ApprovalsPanel({ quote }: Readonly<{ quote: QuoteView }>) {
+type Props = Readonly<{
+  quote: QuoteView
+  /** Null while loading, or when it could not be read: then nobody gets buttons. */
+  settings: SettingsView | null
+  onChanged: (quote: QuoteView) => void
+}>
+
+/** The roles deciding at the quote's status right now. */
+function openRoles(quote: QuoteView): readonly ApproverRole[] {
+  return quote.status === "finance_review" || quote.status === "business_review"
+    ? STAGE_ROLES[quote.status]
+    : []
+}
+
+/** Who fills a role, as configured. */
+function filledBy(role: ApproverRole, settings: SettingsView | null): string {
+  if (settings === null) return ""
+  if (role === "bot_review") return settings.settings.reviewer_bot ?? "No reviewer bot set"
+  const ids = settings.settings.approvers[role]
+  if (ids.length === 0) return "No approvers set"
+  return ids
+    .map(
+      (id) => settings.people.find((p) => p.user_id === id)?.name ?? "someone no longer in the org"
+    )
+    .join(", ")
+}
+
+/** The role, if the viewer may decide it now. */
+function myOpenRole(
+  role: ApproverRole,
+  quote: QuoteView,
+  settings: SettingsView | null
+): HumanRole | null {
+  if (role === "bot_review" || settings === null || quote.approvals[role] !== null) return null
+  return openRoles(quote).includes(role) && settings.my_roles.includes(role) ? role : null
+}
+
+/** Who has decided, who is next, and the decision buttons for the viewer's roles. */
+export function ApprovalsPanel({ quote, settings, onChanged }: Props) {
   return (
     <Panel title="Approvals">
       <ul className="divide-y">
@@ -20,15 +65,20 @@ export function ApprovalsPanel({ quote }: Readonly<{ quote: QuoteView }>) {
           if (a !== null)
             status = `${a.decision === "approve" ? "Approved" : "Changes requested"} by ${a.by}`
           else if (next) status = "Waiting"
+          const mine = myOpenRole(role, quote, settings)
           return (
             <li key={role} className="flex items-start gap-3 px-4 py-3 text-sm">
               <span className="mt-0.5">{icon}</span>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <p className="font-medium">{ROLE_LABEL[role]}</p>
+                <p className="text-muted-foreground truncate text-xs">{filledBy(role, settings)}</p>
                 <p className="text-muted-foreground">{status}</p>
                 {a !== null && a.note !== "" ? (
                   <p className="mt-1 whitespace-pre-wrap">{a.note}</p>
                 ) : null}
+                {mine === null ? null : (
+                  <DecisionForm quote={quote} role={mine} onDecided={onChanged} />
+                )}
               </div>
             </li>
           )

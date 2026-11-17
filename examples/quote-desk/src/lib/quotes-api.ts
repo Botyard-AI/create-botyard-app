@@ -5,7 +5,7 @@
 import { API, type Endpoint, type PathParams, type Query } from "../../shared/api.ts"
 import type { DeepReadonly } from "../../shared/narrow.ts"
 import { isRecord } from "../../shared/narrow.ts"
-import type { QuoteInput } from "../../shared/types.ts"
+import type { Decision, DeskSettings, HumanRole, QuoteInput } from "../../shared/types.ts"
 
 /** The API refused a request; `message` is its explanation, for the person. */
 export class ApiError extends Error {
@@ -108,3 +108,17 @@ export const getQuarter = (quarter: string | null, signal?: AbortSignal) =>
   call(API.quarter, { ...NONE, query: { quarter }, signal })
 
 export const resetDemo = () => call(API.reset, NONE)
+
+export const decide = (id: string, role: HumanRole, decision: Decision, note: string) =>
+  call(API.decideQuote, { ...NONE, params: { id }, body: { role, decision, note } })
+
+export const addComment = (id: string, text: string) =>
+  call(API.commentQuote, { ...NONE, params: { id }, body: { text } })
+
+export const getSettings = (signal?: AbortSignal) => call(API.settings, { ...NONE, signal })
+
+export const saveSettings = (settings: DeskSettings) =>
+  call(API.saveSettings, { ...NONE, body: settings })
+
+export const listBots = async (signal?: AbortSignal) =>
+  (await call(API.bots, { ...NONE, signal })).bots

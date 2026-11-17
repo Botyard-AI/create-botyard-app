@@ -1,11 +1,12 @@
 // The URL is the source of truth for the tab and the selected quote:
-//   /build · /build/Q-2026-0202 (edit a draft) · /quotes · /quotes/Q-2026-0202 · /quarter
+//   /build · /build/Q-2026-0202 (edit a draft) · /quotes · /quotes/Q-2026-0202 · /quarter · /settings
 import { useCallback, useEffect, useState } from "react"
 
 export type Route =
   | { readonly tab: "build"; readonly quoteId: string | null }
   | { readonly tab: "quotes"; readonly quoteId: string | null }
   | { readonly tab: "quarter" }
+  | { readonly tab: "settings" }
 
 const ID = "(Q-\\d{4}-\\d{4})"
 
@@ -16,11 +17,12 @@ export function parseRoute(pathname: string): Route {
   const quotes = new RegExp(`^/quotes(?:/${ID})?$`).exec(p)
   if (quotes) return { tab: "quotes", quoteId: quotes[1] ?? null }
   if (p === "/quarter") return { tab: "quarter" }
+  if (p === "/settings") return { tab: "settings" }
   return { tab: "build", quoteId: null }
 }
 
 export function href(route: Route): string {
-  if (route.tab === "quarter") return "/quarter"
+  if (route.tab === "quarter" || route.tab === "settings") return `/${route.tab}`
   const suffix = route.quoteId === null ? "" : `/${route.quoteId}`
   return `/${route.tab}${suffix}`
 }
