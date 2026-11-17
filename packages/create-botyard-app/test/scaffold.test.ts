@@ -33,7 +33,10 @@ describe("on failure", () => {
     )
     expect(error).toBeInstanceOf(ScaffoldError)
     expect(String(error)).toContain(
-      `Nothing was overwritten or deleted, but ${targetDir} now holds a partial app`
+      "Nothing was overwritten or deleted. Before it stopped, this run created " +
+        `${targetDir} itself and these entries in it:\n` +
+        "  .gitignore\n  .npmrc\n  botyard.json\n  package.json\n" +
+        "Anything else there was not created by this run. Check before removing it"
     )
     // The partial package.json is reported, not removed.
     expect(await listFiles(targetDir)).toEqual([
@@ -59,7 +62,7 @@ describe("on failure", () => {
     ])
   })
 
-  test("a failure before anything is created does not mention a partial app", async () => {
+  test("a failure before anything is created lists nothing", async () => {
     const cwd = await tempDir()
     const targetDir = path.join(cwd, "my-app")
     const beforeTarget = async (): Promise<void> => {
@@ -69,8 +72,30 @@ describe("on failure", () => {
       (err: unknown) => err
     )
     expect(String(error)).toContain("exists and is not a directory")
-    expect(String(error)).not.toContain("partial app")
+    expect(String(error)).not.toContain("this run created")
     expect(await readFile(targetDir, "utf8")).toBe("theirs")
+  })
+
+  // Rivet's case: an empty target we were given, and another process's file
+  // planted where we were about to write. The guidance names only our entries.
+  test("lists only its own entries, never another process's file", async () => {
+    const cwd = await tempDir()
+    const targetDir = path.join(cwd, "my-app")
+    await mkdir(targetDir)
+    const plant = async (file: string): Promise<void> => {
+      if (file.endsWith(".npmrc")) await writeFile(path.join(targetDir, "botyard.json"), "theirs")
+    }
+    const error = await scaffold({ ...base, targetDir, hooks: { afterCreate: plant } }).catch(
+      (err: unknown) => err
+    )
+    const message = String(error)
+    expect(message).toContain("botyard.json appeared while scaffolding")
+    expect(message).toContain(
+      `this run created these entries in ${targetDir}:\n  .gitignore\n  .npmrc\nAnything else`
+    )
+    expect(message).not.toContain("itself")
+    expect(message).not.toMatch(/delete (it|the)/i)
+    expect(await readFile(path.join(targetDir, "botyard.json"), "utf8")).toBe("theirs")
   })
 
   // The interval Rivet found in rollback: ours checked, then another process

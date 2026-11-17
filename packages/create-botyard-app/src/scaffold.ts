@@ -73,8 +73,9 @@ export async function listTemplates(templatesDir: string): Promise<string[]> {
  * - Before reporting success it checks, by device and inode, that the target
  *   and every entry it created are still at their paths.
  * - It never deletes anything. If it fails part-way, what it created stays,
- *   and the error says so: removing a path after checking it is ours can
- *   never be atomic, so cleanup is left to the user.
+ *   and the error lists exactly those entries: removing a path after
+ *   checking it is ours can never be atomic, so cleanup is left to the user,
+ *   who can see what else is there.
  *
  * Limit (Node has no `openat`): exclusive creation protects only the last
  * path segment. A concurrent process that can rename directories on the
@@ -116,7 +117,7 @@ export async function scaffold(options: ScaffoldOptions): Promise<void> {
     }
     await verify([target, ...created], targetDir)
   } catch (err) {
-    throw withPartialNote(err, targetDir, madeTarget || created.length > 0)
+    throw withCreatedList(err, targetDir, madeTarget, created)
   }
 }
 
@@ -261,14 +262,32 @@ async function verify(expected: readonly Created[], targetDir: string): Promise<
 }
 
 /**
- * The error to report for a failed run. When it created something, the
- * message says it was left in place and the target must be removed by hand.
+ * The error to report for a failed run. When it created anything, the message
+ * lists exactly what, so the user can remove those entries and keep anything
+ * else that is there: it cannot know what another process added.
  */
-function withPartialNote(err: unknown, targetDir: string, createdSomething: boolean): Error {
-  const note = createdSomething
-    ? ` Nothing was overwritten or deleted, but ${targetDir} now holds a partial app: ` +
-      "delete it before trying again."
-    : ""
+function withCreatedList(
+  err: unknown,
+  targetDir: string,
+  madeTarget: boolean,
+  created: readonly Created[]
+): Error {
+  let note = ""
+  if (madeTarget || created.length > 0) {
+    const lines = created.map(
+      (item) => `  ${path.relative(targetDir, item.file)}${item.dir ? "/" : ""}`
+    )
+    let what = `these entries in ${targetDir}`
+    if (madeTarget)
+      what =
+        created.length > 0 ? `${targetDir} itself and these entries in it` : `${targetDir} itself`
+    const list = lines.length > 0 ? `:\n${lines.join("\n")}` : "."
+    note = [
+      `\n\nNothing was overwritten or deleted. Before it stopped, this run created ${what}${list}`,
+      "Anything else there was not created by this run. Check before removing it, " +
+        "then try again in a new or empty directory.",
+    ].join("\n")
+  }
   if (err instanceof ScaffoldError) return new ScaffoldError(`${err.message}${note}`)
   if (err instanceof Error && "code" in err) {
     return new ScaffoldError(`Could not create the app in ${targetDir}: ${err.message}.${note}`)

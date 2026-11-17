@@ -24,7 +24,7 @@ Packages are released separately. A release section is headed
   a template bundled in the package into a new or empty directory, then names
   the app in its `package.json` and `botyard.json`. It downloads nothing,
   installs nothing, and never overwrites or deletes anything; if it fails
-  part-way it leaves what it created and says so. The build bundles the repository's `templates/` into the package.
+  part-way it leaves what it created and lists exactly those entries. The build bundles the repository's `templates/` into the package.
 
 ### Changed
 
