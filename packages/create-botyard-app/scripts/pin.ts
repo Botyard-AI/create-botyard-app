@@ -131,7 +131,8 @@ async function checkLockfile(
 /** Reads package metadata from the public npm registry. */
 export function npmRegistry(base = "https://registry.npmjs.org"): Registry {
   return async (name) => {
-    const res = await fetch(`${base}/${name.replace("/", "%2f")}`, {
+    // A scoped name's "/" is escaped as npm's own client does: "@scope%2fname".
+    const res = await fetch(`${base}/${name.replaceAll("/", "%2f")}`, {
       headers: { accept: "application/vnd.npm.install-v1+json" },
       signal: AbortSignal.timeout(30_000),
     })

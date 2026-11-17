@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { describe, expect, test } from "vitest"
+import { afterEach, describe, expect, test, vi } from "vitest"
 import type { Published, Registry } from "../scripts/pin.ts"
-import { pinWorkspaceDependencies, readWorkspaceVersions } from "../scripts/pin.ts"
+import { npmRegistry, pinWorkspaceDependencies, readWorkspaceVersions } from "../scripts/pin.ts"
 import { readJson, tempDir } from "./helpers.ts"
 
 const workspace = new Map([
@@ -132,5 +132,45 @@ test("readWorkspaceVersions lists publishable packages only", async () => {
   await write("internal", { name: "@botyard/internal", version: "1.0.0", private: true })
   expect(Object.fromEntries(await readWorkspaceVersions(root))).toEqual({
     "@botyard/runtime": "0.1.1",
+  })
+})
+
+describe("npmRegistry", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  test("asks for abbreviated metadata with the scope's slash escaped", async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        "dist-tags": { latest: "0.1.1" },
+        versions: { "0.1.1": { dist: { integrity: "sha512-abc" } } },
+      })
+    )
+    vi.stubGlobal("fetch", fetchMock)
+    const published = await npmRegistry("https://registry.example")("@botyard/runtime")
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://registry.example/@botyard%2fruntime",
+      expect.objectContaining({ headers: { accept: "application/vnd.npm.install-v1+json" } })
+    )
+    expect(published.latest).toBe("0.1.1")
+    expect(published.integrity("0.1.1")).toBe("sha512-abc")
+    expect(published.integrity("0.1.0")).toBeUndefined()
+  })
+
+  test("reports an unpublished package as having no latest", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 404 }))
+    )
+    expect((await npmRegistry()("@botyard/nothing")).latest).toBeUndefined()
+  })
+
+  test("fails on other HTTP errors", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 503 }))
+    )
+    await expect(npmRegistry()("@botyard/runtime")).rejects.toThrow(/HTTP 503/)
   })
 })
