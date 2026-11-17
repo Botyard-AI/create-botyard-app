@@ -1,5 +1,14 @@
-// The desk's files: JSON, each replaced atomically on every change.
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+// The desk's files: JSON, each replaced atomically and synced to disk on every change.
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import path from "node:path"
 import { parseSettings } from "../../shared/parse.ts"
 import type { DeskSettings } from "../../shared/types.ts"
@@ -23,16 +32,31 @@ export function readJson<T>(file: string, parse: (value: unknown) => T): T | nul
   return parse(json)
 }
 
-/** Writes a temporary file, then renames it over the old one. Leaves no temporary file. */
+/**
+ * Writes a temporary file, then renames it over the old one, syncing both to
+ * disk so a write that returned survives a power cut. Leaves no temporary file.
+ */
 export function writeJson(file: string, value: unknown): void {
-  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+  const dir = path.dirname(file)
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
   const tmp = `${file}.${String(process.pid)}.tmp`
   try {
     writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
+    syncPath(tmp)
     renameSync(tmp, file)
   } catch (err) {
     rmSync(tmp, { force: true })
     throw err
+  }
+  syncPath(dir) // the rename itself
+}
+
+function syncPath(p: string): void {
+  const fd = openSync(p, "r")
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
   }
 }
 
