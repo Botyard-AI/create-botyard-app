@@ -3,7 +3,7 @@ import {
   APPROVER_ROLES,
   STAGE_ROLES,
   type ApproverRole,
-  type HumanRole,
+  type HandoffView,
   type QuoteView,
   type SettingsView,
 } from "../../shared/types.ts"
@@ -15,6 +15,8 @@ type Props = Readonly<{
   quote: QuoteView
   /** Null while loading, or when it could not be read: then nobody gets buttons. */
   settings: SettingsView | null
+  /** Where the reviewer bot's part stands; null when unknown. */
+  handoff: HandoffView | null
   onChanged: (quote: QuoteView) => void
 }>
 
@@ -38,18 +40,25 @@ function filledBy(role: ApproverRole, settings: SettingsView | null): string {
     .join(", ")
 }
 
-/** The role, if the viewer may decide it now. */
+/**
+ * The role, if the viewer may decide it now. The reviewer bot's role is only
+ * decided here once its handoff has gone manual, and then by finance.
+ */
 function myOpenRole(
   role: ApproverRole,
   quote: QuoteView,
-  settings: SettingsView | null
-): HumanRole | null {
-  if (role === "bot_review" || settings === null || quote.approvals[role] !== null) return null
-  return openRoles(quote).includes(role) && settings.my_roles.includes(role) ? role : null
+  settings: SettingsView | null,
+  handoff: HandoffView | null
+): ApproverRole | null {
+  if (settings === null || quote.approvals[role] !== null || !openRoles(quote).includes(role))
+    return null
+  if (role === "bot_review")
+    return handoff?.kind === "manual" && settings.my_roles.includes("finance") ? role : null
+  return settings.my_roles.includes(role) ? role : null
 }
 
 /** Who has decided, who is next, and the decision buttons for the viewer's roles. */
-export function ApprovalsPanel({ quote, settings, onChanged }: Props) {
+export function ApprovalsPanel({ quote, settings, handoff, onChanged }: Props) {
   return (
     <Panel title="Approvals">
       <ul className="divide-y">
@@ -65,7 +74,7 @@ export function ApprovalsPanel({ quote, settings, onChanged }: Props) {
           if (a !== null)
             status = `${a.decision === "approve" ? "Approved" : "Changes requested"} by ${a.by}`
           else if (next) status = "Waiting"
-          const mine = myOpenRole(role, quote, settings)
+          const mine = myOpenRole(role, quote, settings, handoff)
           return (
             <li key={role} className="flex items-start gap-3 px-4 py-3 text-sm">
               <span className="mt-0.5">{icon}</span>
@@ -75,6 +84,11 @@ export function ApprovalsPanel({ quote, settings, onChanged }: Props) {
                 <p className="text-muted-foreground">{status}</p>
                 {a !== null && a.note !== "" ? (
                   <p className="mt-1 whitespace-pre-wrap">{a.note}</p>
+                ) : null}
+                {mine === "bot_review" ? (
+                  <p className="text-muted-foreground mt-1 text-xs">
+                    The reviewer bot isn&apos;t handling this quote: record its review for it.
+                  </p>
                 ) : null}
                 {mine === null ? null : (
                   <DecisionForm quote={quote} role={mine} onDecided={onChanged} />

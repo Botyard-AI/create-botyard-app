@@ -1,13 +1,13 @@
 import { Check, Undo2 } from "lucide-react"
 import { useId, useState } from "react"
-import type { Decision, HumanRole, QuoteView } from "../../shared/types.ts"
+import type { ApproverRole, Decision, QuoteView } from "../../shared/types.ts"
 import { Button } from "@/components/ui/button"
 import { ROLE_LABEL } from "@/lib/format"
 import { decide } from "@/lib/quotes-api"
 
 type Props = Readonly<{
   quote: QuoteView
-  role: HumanRole
+  role: ApproverRole
   onDecided: (quote: QuoteView) => void
 }>
 

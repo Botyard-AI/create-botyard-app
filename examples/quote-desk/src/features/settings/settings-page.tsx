@@ -1,11 +1,25 @@
 import { Save } from "lucide-react"
 import { useEffect, useState } from "react"
-import type { BotOption, DeskSettings, MemberOption, SettingsView } from "../../../shared/types.ts"
+import type {
+  BotOption,
+  DeskSettings,
+  MemberOption,
+  ReviewStatus,
+  SettingsView,
+} from "../../../shared/types.ts"
 import { Notice, Panel } from "@/components/ui/bits"
 import { Button } from "@/components/ui/button"
 import { Field, Select } from "@/components/ui/form"
-import { getMembers, getSettings, listBots, saveSettings } from "@/lib/quotes-api"
+import {
+  createReviewBoard,
+  getMembers,
+  getReviewStatus,
+  getSettings,
+  listBots,
+  saveSettings,
+} from "@/lib/quotes-api"
 import { ApproverPicker } from "./approver-picker"
+import { ReviewSection } from "./review-section"
 
 type Loaded =
   | { readonly state: "loading" }
@@ -25,6 +39,9 @@ export function SettingsPage() {
   const [draft, setDraft] = useState<DeskSettings | null>(null)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+  // The reviewer handoff as saved; read again after each save.
+  const [review, setReview] = useState<ReviewStatus | null>(null)
+  const [saves, setSaves] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -45,6 +62,18 @@ export function SettingsPage() {
     }
   }, [])
 
+  useEffect(() => {
+    const controller = new AbortController()
+    getReviewStatus(controller.signal)
+      .then(setReview)
+      .catch(() => {
+        // The section shows without its status; saving still checks the board.
+      })
+    return () => {
+      controller.abort()
+    }
+  }, [saves])
+
   if (loaded.state === "loading") return <p className="text-muted-foreground text-sm">Loading…</p>
   if (loaded.state === "error" || draft === null)
     return (
@@ -62,6 +91,23 @@ export function SettingsPage() {
     try {
       setDraft(await saveSettings(next))
       setResult({ ok: true, text: "Saved." })
+      setSaves((n) => n + 1)
+    } catch (err) {
+      setResult({ ok: false, text: message(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function createBoard(current: DeskSettings) {
+    setBusy(true)
+    setResult(null)
+    try {
+      const saved = await createReviewBoard()
+      // Keep unsaved edits elsewhere; the board is saved already.
+      setDraft({ ...current, review_board: saved.review_board })
+      setResult({ ok: true, text: `Created board ${saved.review_board ?? ""} and saved it.` })
+      setSaves((n) => n + 1)
     } catch (err) {
       setResult({ ok: false, text: message(err) })
     } finally {
@@ -126,6 +172,14 @@ export function SettingsPage() {
             }}
           />
         </div>
+        <ReviewSection
+          status={review}
+          draft={draft}
+          canEdit={view.can_edit}
+          disabled={readOnly}
+          onChange={setDraft}
+          onCreateBoard={() => void createBoard(draft)}
+        />
         {view.can_edit ? (
           <div className="flex items-center gap-3">
             <Button type="submit" disabled={busy}>

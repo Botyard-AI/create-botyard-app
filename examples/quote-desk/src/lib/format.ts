@@ -28,3 +28,16 @@ export function when(iso: string): string {
     minute: "2-digit",
   })
 }
+
+/** How long since `iso`, roughly: "under a minute", "12 min", "3 h 5 min", "2 days". */
+export function age(iso: string, now: Date): string {
+  const ms = now.getTime() - new Date(iso).getTime()
+  if (Number.isNaN(ms)) return "a while"
+  const min = Math.floor(ms / 60_000)
+  if (min < 1) return "under a minute"
+  if (min < 60) return `${String(min)} min`
+  const h = Math.floor(min / 60)
+  if (h < 24) return min % 60 === 0 ? `${String(h)} h` : `${String(h)} h ${String(min % 60)} min`
+  const d = Math.floor(h / 24)
+  return d === 1 ? "1 day" : `${String(d)} days`
+}

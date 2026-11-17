@@ -47,6 +47,76 @@ service and expose it with `--persistent`.
 - **`test/`** runs the API against `@botyard/runtime`'s mock transport, with
   the same fixtures as `dev:mock`.
 
+## The reviewer bot
+
+Each quote in finance review needs two decisions: the reviewer bot's and a
+finance approver's. The app hands the reviewer bot's part over as a task on a
+workforce board, and reads the verdict back from the task.
+
+**Setting it up (Settings, owners and admins).**
+
+1. Pick the reviewer bot.
+2. Pick a review board. The board needs the columns `review`, `approved` and
+   `changes-requested`. With the `create_workforce` tool assigned to this
+   bot, **Create review board** makes one. Without it, Settings says so, and
+   you pick a board this bot is already on.
+3. The reviewer bot must be a member of the board. No tool adds another bot to
+   a board, so the reviewer joins it itself (`join_workforce`). Until it does,
+   the quote page says who to ask, with the request to copy.
+4. Optional: a **handoff thread**, the id of a conversation of this bot's. When
+   it is set, each handoff also nudges the reviewer bot there
+   (`send_message_to_bot`). When it is not, nothing is sent.
+5. Set `QUOTE_DESK_FILE_HOSTS` to the host names the platform's file download
+   links use, comma-separated. The app reads `verdict.json` only from these.
+
+**What happens to a quote.** Every 10 seconds the app checks the quotes
+waiting for the reviewer bot:
+
+- It checks the board, its columns and the reviewer's membership before every
+  handoff, then creates a task in `review`, assigned to the reviewer bot. The
+  task holds the brief: the lines, margin against the floor, terms, the
+  customer's credit and the territory budget.
+- It reads the task with `get_task`, at first after 15 seconds, then less
+  often, up to every 5 minutes. Only quotes in finance review are checked.
+- When the task is in `approved` or `changes-requested`, the app reads
+  `verdict.json` from it and records the decision as the reviewer bot's.
+
+The quote page shows the task, its column, and how long it has waited.
+
+**When the bot can't do it, people do.** If the board isn't set, isn't
+there, lacks a column or the reviewer isn't on it, or the task disappears, or
+the verdict can't be read, the quote goes back to people. The page says why
+and since when. A finance approver then records the reviewer bot's decision
+from the quote page. Nothing else stops working.
+
+**The reviewer bot's side.** The reviewer needs `list_my_tasks`, `get_task`,
+`update_task`, `upload_task_files` and `join_workforce`. Being assigned a task
+does not wake a bot, so give the reviewer a schedule, for example every 15
+minutes:
+
+> Check `list_my_tasks` for tasks tagged `quote-desk` in the Review column.
+> For each, follow the "How to answer" steps in its description.
+
+Its answer, attached to the task as `verdict.json` before it moves the task:
+
+```json
+{
+  "quote_id": "Q-2026-0201",
+  "decision": "approve",
+  "note": "One or two sentences for the approval card.",
+  "analysis": "Optional: a longer analysis for the quote history."
+}
+```
+
+`decision` is `approve` with the Approved column and `reject` with Changes
+requested. Any other field, a mismatched decision or quote, or an empty note
+sends the quote to people instead.
+
+**Reading `verdict.json`.** The download link is presigned: it is a credential.
+The app never logs it, stores it or shows it. It reads the link only over
+https, from a host in `QUOTE_DESK_FILE_HOSTS`, with no redirects. The file may
+be at most 16 KiB and must arrive within 10 seconds.
+
 ## Security notes
 
 - **Dependencies.** `package-lock.json` pins every package, including

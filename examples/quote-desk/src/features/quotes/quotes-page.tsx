@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
-import type { QuoteSummary, QuoteView, SettingsView } from "../../../shared/types.ts"
+import type { HandoffView, QuoteSummary, QuoteView, SettingsView } from "../../../shared/types.ts"
 import { Notice, Panel } from "@/components/ui/bits"
-import { getQuote, getSettings, listQuotes } from "@/lib/quotes-api"
+import { getHandoff, getQuote, getSettings, listQuotes } from "@/lib/quotes-api"
 import { QuoteDetail } from "./quote-detail"
 import { QuoteList } from "./quote-list"
 
@@ -27,6 +27,8 @@ export function QuotesPage({
   const [tick, setTick] = useState(0)
   // Who may decide what. Without it nobody gets decision buttons; the server checks anyway.
   const [settings, setSettings] = useState<SettingsView | null>(null)
+  // The reviewer bot's part of the selected quote; null until read, or if it could not be.
+  const [handoff, setHandoff] = useState<{ id: string; value: HandoffView } | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -77,6 +79,14 @@ export function QuotesPage({
       .catch((err: unknown) => {
         if (!controller.signal.aborted) setQuote({ state: "error", message: message(err) })
       })
+    getHandoff(selected, controller.signal)
+      .then((value) => {
+        setHandoff({ id: selected, value })
+      })
+      .catch(() => {
+        // The panel is left out; the quote still shows.
+        if (!controller.signal.aborted) setHandoff(null)
+      })
     return () => {
       controller.abort()
     }
@@ -111,6 +121,8 @@ export function QuotesPage({
           <QuoteDetail
             quote={quote.value}
             settings={settings}
+            handoff={handoff?.id === quote.value.id ? handoff.value : null}
+            now={new Date()}
             onEdit={onEdit}
             onChanged={(value) => {
               setQuote({ state: "ready", value })
