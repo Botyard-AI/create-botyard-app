@@ -81,3 +81,10 @@ export type SettingsView = Wire<typeof P.parseSettingsView>
 /** A bot in the org, for the reviewer picker (GET /api/bots). */
 export type BotList = Wire<typeof P.parseBotList>
 export type BotOption = BotList["bots"][number]
+
+// ---------- reviewer handoff ----------
+
+/** Where the reviewer bot's part of a quote stands. */
+export type HandoffView = Wire<typeof P.parseHandoffView>["handoff"]
+/** Whether the reviewer handoff can run, for Settings. */
+export type ReviewStatus = Wire<typeof P.parseReviewStatus>

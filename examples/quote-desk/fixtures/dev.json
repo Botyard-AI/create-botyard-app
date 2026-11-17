@@ -55,6 +55,72 @@
           }
         ]
       }
+    },
+    "list_my_workforces": {
+      "result": {
+        "total": 1,
+        "boards": [
+          {
+            "id": "wf-dev",
+            "name": "Quote reviews",
+            "slug": "quote-reviews",
+            "description": "Finance reviews from the Quote desk.",
+            "columns": [
+              {
+                "id": "review",
+                "name": "Review",
+                "position": 0
+              },
+              {
+                "id": "approved",
+                "name": "Approved",
+                "position": 1
+              },
+              {
+                "id": "changes-requested",
+                "name": "Changes requested",
+                "position": 2
+              }
+            ],
+            "is_member": true
+          }
+        ]
+      }
+    },
+    "get_workforce_members": {
+      "result": {
+        "members": [
+          {
+            "bot_id": "bot-dev",
+            "bot_name": "Dev Bot",
+            "bot_slug": "dev-bot"
+          },
+          {
+            "bot_id": "bot-reviewer",
+            "bot_name": "Reviewer Bot",
+            "bot_slug": "reviewer-bot"
+          }
+        ]
+      }
+    },
+    "create_task": {
+      "result": {
+        "id": "task-dev-1",
+        "number": 1,
+        "column_id": "review"
+      }
+    },
+    "get_task": {
+      "result": {
+        "id": "task-dev-1",
+        "number": 1,
+        "column_id": "review"
+      }
+    },
+    "list_task_files": {
+      "result": {
+        "result": []
+      }
     }
   }
 }

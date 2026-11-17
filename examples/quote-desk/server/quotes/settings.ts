@@ -5,6 +5,8 @@ import { HUMAN_ROLES } from "../../shared/types.ts"
 
 export const EMPTY_SETTINGS: DeskSettings = {
   reviewer_bot: null,
+  review_board: null,
+  handoff_thread: null,
   approvers: { finance: [], business: [] },
 }
 

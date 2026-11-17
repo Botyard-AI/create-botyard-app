@@ -14,7 +14,17 @@ import { CRM_SEED } from "./quotes/crm-seed.ts"
 import { QuoteDesk } from "./quotes/desk.ts"
 import { ERP_SEED } from "./quotes/erp-seed.ts"
 import { SettingsStore } from "./quotes/settings.ts"
-import { loadSettings, loadState, saveSettings, saveState } from "./quotes/store.ts"
+import {
+  loadSettings,
+  loadState,
+  readJson,
+  saveSettings,
+  saveState,
+  writeJson,
+} from "./quotes/store.ts"
+import { HandoffStore, parseHandoffs } from "./review/handoffs.ts"
+import { ReviewRelay } from "./review/relay.ts"
+import { fileHosts as parseFileHosts } from "./review/verdict.ts"
 import { loadStatic, StaticLoadError, type StaticFiles } from "./static.ts"
 
 const dev = process.argv.includes("--dev")
@@ -68,6 +78,21 @@ const settings = new SettingsStore({
   },
 })
 
+// The reviewer bot's handoffs: data/handoffs.json. The relay hands quotes in
+// finance review to the reviewer bot as workforce tasks (Settings picks the
+// board) and records its verdicts. QUOTE_DESK_FILE_HOSTS lists the storage
+// hosts verdict.json links may point at.
+const handoffsFile = path.join(dataDir, "handoffs.json")
+const handoffs = new HandoffStore({
+  handoffs: readJson(handoffsFile, parseHandoffs),
+  save: (next) => {
+    writeJson(handoffsFile, { handoffs: next })
+  },
+})
+const fileHosts = parseFileHosts(process.env["QUOTE_DESK_FILE_HOSTS"])
+const relay = new ReviewRelay({ desk, settings, handoffs, tools: runtime, fileHosts })
+relay.start()
+
 const server = createServer()
 let ui: Middleware | undefined
 if (dev) {
@@ -82,8 +107,16 @@ if (dev) {
 
 const handler = createApp(
   dev
-    ? { botpage, tools: runtime, desk, settings, ...(ui && { ui }) }
-    : { botpage, tools: runtime, desk, settings, staticFiles: await loadBuiltUi() }
+    ? { botpage, tools: runtime, desk, settings, relay, fileHosts, ...(ui && { ui }) }
+    : {
+        botpage,
+        tools: runtime,
+        desk,
+        settings,
+        relay,
+        fileHosts,
+        staticFiles: await loadBuiltUi(),
+      }
 )
 server.on("request", (req, res) => {
   handler(req, res).catch((err: unknown) => {

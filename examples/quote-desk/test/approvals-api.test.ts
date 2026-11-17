@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest"
 import type { Runtime } from "@botyard/runtime"
-import { SettingsStore } from "../server/quotes/settings.ts"
+import { EMPTY_SETTINGS, SettingsStore } from "../server/quotes/settings.ts"
+import { HandoffStore } from "../server/review/handoffs.ts"
+import { NOT_SET_UP, ReviewRelay } from "../server/review/relay.ts"
 import type { DeskSettings } from "../shared/types.ts"
 import { asViewer, memoryDesk, mockRuntime, startApp } from "./helpers.ts"
 
@@ -24,6 +26,8 @@ async function json(res: Response): Promise<Record<string, unknown>> {
 
 const CONFIGURED: DeskSettings = {
   reviewer_bot: "reviewer-bot",
+  review_board: null,
+  handoff_thread: null,
   approvers: { finance: ["user-grace"], business: ["user-ada"] },
 }
 
@@ -31,7 +35,7 @@ describe("approver settings", () => {
   test("start empty; owners and admins may edit them", async () => {
     const base = await startApp()
     expect(await json(await fetch(`${base}/api/settings`, asViewer(ADA)))).toEqual({
-      settings: { reviewer_bot: null, approvers: { finance: [], business: [] } },
+      settings: EMPTY_SETTINGS,
       can_edit: true,
       my_roles: [],
       people: [],
@@ -95,8 +99,8 @@ describe("approver settings", () => {
     const base = await startApp()
     expect(await json(await fetch(`${base}/api/bots`, asViewer(GRACE)))).toEqual({
       bots: [
-        { slug: "reviewer-bot", name: "Reviewer Bot" },
-        { slug: "helper-bot", name: "Helper Bot" },
+        { id: "bot-reviewer", slug: "reviewer-bot", name: "Reviewer Bot" },
+        { id: "bot-helper", slug: "helper-bot", name: "Helper Bot" },
       ],
     })
   })
@@ -115,9 +119,18 @@ describe("approver settings", () => {
 describe("decisions", () => {
   async function submitted() {
     const desk = memoryDesk()
-    const base = await startApp({ desk, settings: new SettingsStore({ settings: CONFIGURED }) })
+    const settings = new SettingsStore({ settings: CONFIGURED })
+    const tools = mockRuntime()
+    const relay = new ReviewRelay({
+      desk,
+      settings,
+      handoffs: new HandoffStore(),
+      tools,
+      fileHosts: new Set(),
+    })
+    const base = await startApp({ desk, settings, tools, relay })
     // Q-2026-0200 is seeded in finance review.
-    return { desk, base, id: "Q-2026-0200" }
+    return { desk, base, relay, id: "Q-2026-0200" }
   }
 
   test("only a configured approver may decide for a role", async () => {
@@ -134,13 +147,29 @@ describe("decisions", () => {
     })
   })
 
-  test("the reviewer bot's role cannot be decided from the page", async () => {
+  test("while the reviewer bot has a quote, its role cannot be decided from the page", async () => {
     const { base, id } = await submitted()
     const res = await fetch(
       `${base}/api/quotes/${id}/decide`,
       send(GRACE, "POST", { role: "bot_review", decision: "approve", note: "" })
     )
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(409)
+  })
+
+  test("with no review board, a finance approver records the reviewer bot's verdict", async () => {
+    const { base, id, relay } = await submitted()
+    await relay.tick() // no board in CONFIGURED: the handoff is manual
+    const handoff = await json(await fetch(`${base}/api/quotes/${id}/handoff`, asViewer(ADA)))
+    expect(handoff).toMatchObject({ handoff: { kind: "manual", reason: NOT_SET_UP } })
+
+    const body = { role: "bot_review", decision: "approve", note: "Checked by hand" }
+    const business = await fetch(`${base}/api/quotes/${id}/decide`, send(ADA, "POST", body))
+    expect(business.status).toBe(403)
+    const finance = await fetch(`${base}/api/quotes/${id}/decide`, send(GRACE, "POST", body))
+    expect(finance.status).toBe(200)
+    expect((await json(finance))["approvals"]).toMatchObject({
+      bot_review: { decision: "approve", by: "Grace Hopper, for the reviewer bot" },
+    })
   })
 
   test("a business approver waits for finance", async () => {

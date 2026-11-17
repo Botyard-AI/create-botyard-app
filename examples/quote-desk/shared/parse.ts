@@ -475,15 +475,36 @@ function approverIds(r: Rec, role: HumanRole, at: string) {
  * Who approves (data/settings.json, and PUT /api/settings). Approvers are org
  * members by user id, which never changes; an email can move to someone else.
  */
+/** A slug, or null. Absent (settings saved before the field existed) is null too. */
+function slugOrNull(r: Rec, key: string, at: string, what: string): string | null {
+  if (r[key] === undefined) return null
+  const slug = strOrNull(r, key, at, 63)
+  if (slug !== null && !SLUG.test(slug)) throw new ParseError(`${at}.${key}: not a ${what} slug`)
+  return slug
+}
+
+/** A conversation id: a UUID. */
+const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
 export function parseSettings(value: unknown, at = "settings") {
   const r = record(value, at)
-  const reviewer = strOrNull(r, "reviewer_bot", at, 63)
-  if (reviewer !== null && !SLUG.test(reviewer))
-    throw new ParseError(`${at}.reviewer_bot: not a bot slug`)
+  const thread = r["handoff_thread"] === undefined ? null : strOrNull(r, "handoff_thread", at, 36)
+  if (thread !== null && !CONVERSATION_ID.test(thread))
+    throw new ParseError(`${at}.handoff_thread: not a conversation id`)
   const a = record(r["approvers"], `${at}.approvers`)
   return {
     /** Slug of the bot that reviews quotes for finance, or null until one is picked. */
-    reviewer_bot: reviewer,
+    reviewer_bot: slugOrNull(r, "reviewer_bot", at, "bot"),
+    /**
+     * Slug of the workforce board the reviewer bot gets its tasks on, or null:
+     * then the reviewer's verdict is recorded by hand.
+     */
+    review_board: slugOrNull(r, "review_board", at, "board"),
+    /**
+     * Optional: a conversation of this bot to send the reviewer a nudge from
+     * when a task is waiting. Without one, the reviewer finds its tasks itself.
+     */
+    handoff_thread: thread,
     /** User ids of the members who may decide for each role. */
     approvers: {
       finance: approverIds(a, "finance", `${at}.approvers`),
@@ -521,7 +542,7 @@ export function parseSettingsView(value: unknown) {
 export function parseBotList(value: unknown) {
   const bots = items(record(value, "response"), "bots", "response", 1000, (v, p) => {
     const b = record(v, p)
-    return { slug: str(b, "slug", p, 63), name: str(b, "name", p) }
+    return { id: str(b, "id", p, 80), slug: str(b, "slug", p, 63), name: str(b, "name", p) }
   })
   return { bots }
 }
@@ -536,7 +557,11 @@ export const parseSavedSettings = (value: unknown) => parseSettings(value, "resp
 export function parseDecisionInput(value: unknown) {
   const r = record(value, "body")
   return {
-    role: oneOf(r, "role", HUMAN_ROLES, "body"),
+    /**
+     * A person's own role, or `bot_review`: a finance approver recording the
+     * reviewer bot's verdict while its handoff is manual.
+     */
+    role: oneOf(r, "role", APPROVER_ROLES, "body"),
     decision: oneOf(r, "decision", DECISIONS, "body"),
     note: str(r, "note", "body", 2000),
   }
@@ -546,3 +571,75 @@ export function parseDecisionInput(value: unknown) {
 export function parseCommentInput(value: unknown) {
   return { text: str(record(value, "body"), "text", "body", 2000) }
 }
+
+// ---------- reviewer handoff ----------
+
+function handoffState(value: unknown, at: string) {
+  const r = record(value, at)
+  const kind = oneOf(r, "kind", ["none", "pending", "task", "manual"], at)
+  switch (kind) {
+    case "none":
+    case "pending":
+      return { kind }
+    case "manual":
+      return {
+        kind,
+        since: str(r, "since", at, 40),
+        reason: str(r, "reason", at, 1000),
+        instruction: strOrNull(r, "instruction", at, 1000),
+      }
+    case "task":
+      return {
+        kind,
+        since: str(r, "since", at, 40),
+        board: str(r, "board", at, 63),
+        task_number: num(r, "task_number", at),
+        column: str(r, "column", at, 80),
+        last_checked_at: strOrNull(r, "last_checked_at", at, 40),
+        detail: strOrNull(r, "detail", at, 1000),
+      }
+  }
+}
+
+/** GET /api/quotes/:id/handoff: where the reviewer bot's part of a quote stands. */
+export function parseHandoffView(value: unknown) {
+  return { handoff: handoffState(record(value, "response")["handoff"], "response.handoff") }
+}
+
+/** GET /api/review: whether the reviewer handoff can run, for Settings. */
+export function parseReviewStatus(value: unknown) {
+  const at = "response"
+  const r = record(value, at)
+  const s = record(r["setup"], `${at}.setup`)
+  const setup =
+    oneOf(s, "kind", ["ready", "off"], `${at}.setup`) === "ready"
+      ? {
+          kind: "ready" as const,
+          board: str(s, "board", `${at}.setup`, 63),
+          reviewer: str(s, "reviewer", `${at}.setup`),
+        }
+      : {
+          kind: "off" as const,
+          reason: str(s, "reason", `${at}.setup`, 1000),
+          instruction: strOrNull(s, "instruction", `${at}.setup`, 1000),
+        }
+  return {
+    setup,
+    /** Whether this bot may create a board (create_workforce is assigned to it). */
+    can_create_board: bool(r, "can_create_board", at),
+    /** The boards this bot is on, and the review columns each lacks. */
+    boards: items(r, "boards", at, 1000, (v, p) => {
+      const b = record(v, p)
+      return {
+        slug: str(b, "slug", p, 63),
+        name: str(b, "name", p),
+        missing_columns: strings(b, "missing_columns", p, 10),
+      }
+    }),
+    /** QUOTE_DESK_FILE_HOSTS: where verdict.json links may point. */
+    file_hosts: strings(r, "file_hosts", at, 50),
+  }
+}
+
+/** POST /api/review/board answers with the saved settings. */
+export const parseCreatedBoard = parseSavedSettings

@@ -19,6 +19,8 @@ import { listOrgBots } from "./org.ts"
 import type { QuoteDesk } from "./quotes/desk.ts"
 import { ROLE_LABEL } from "./quotes/desk.ts"
 import type { SettingsStore } from "./quotes/settings.ts"
+import type { ReviewRelay } from "./review/relay.ts"
+import { checkReviewSettings } from "./review/routes.ts"
 import { displayName } from "./routes.ts"
 
 /** Org roles that may change who approves. */
@@ -29,6 +31,7 @@ export type ApprovalDeps = {
   settings: SettingsStore
   botpage: BotPage
   tools: ToolCaller
+  relay: ReviewRelay
 }
 
 /** Every reviewer bot and approver must exist in the org. */
@@ -38,6 +41,7 @@ async function checkSettings(next: DeskSettings, { botpage, tools }: ApprovalDep
     if (!bots.some((b) => b.slug === next.reviewer_bot))
       throw new HttpError(400, `${next.reviewer_bot} is not a bot in this org`)
   }
+  await checkReviewSettings(next, tools)
   for (const role of HUMAN_ROLES) {
     for (const userId of next.approvers[role]) {
       const found = await botpage.members.lookup(userId)
@@ -56,7 +60,7 @@ async function people(settings: DeskSettings, botpage: BotPage): Promise<MemberO
 }
 
 export function approvalRoutes(deps: ApprovalDeps): Route[] {
-  const { desk, settings, botpage, tools } = deps
+  const { desk, settings, botpage, tools, relay } = deps
   return [
     endpoint(deps, API.settings, async ({ member }) => {
       const current = settings.get()
@@ -81,9 +85,22 @@ export function approvalRoutes(deps: ApprovalDeps): Route[] {
       prepare: nothing,
       // Roles are read from the settings for the fresh viewer, by user id.
       apply: ({ body: { role, decision, note }, member, param }) => {
-        if (!settings.rolesOf(member.userId).includes(role))
-          throw new HttpError(403, `You are not a ${ROLE_LABEL[role].toLowerCase()} approver`)
-        return desk.decide(param("id"), role, decision, note, displayName(member))
+        const mine = settings.rolesOf(member.userId)
+        const id = param("id")
+        if (role !== "bot_review") {
+          if (!mine.includes(role))
+            throw new HttpError(403, `You are not a ${ROLE_LABEL[role].toLowerCase()} approver`)
+          return desk.decide(id, role, decision, note, displayName(member))
+        }
+        // The reviewer bot's verdict, recorded by hand: only while its handoff is manual.
+        if (!mine.includes("finance"))
+          throw new HttpError(403, "Only finance approvers record the reviewer bot's verdict")
+        if (!relay.isManual(desk.get(id)))
+          throw new HttpError(
+            409,
+            "The reviewer bot has this quote; its verdict is recorded when it answers"
+          )
+        return desk.decide(id, role, decision, note, `${displayName(member)}, for the reviewer bot`)
       },
     }),
     change(deps, API.commentQuote, {

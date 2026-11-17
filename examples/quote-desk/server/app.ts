@@ -1,8 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { BotPage } from "@botyard/botpage"
 import { withViewer } from "@botyard/botpage/node"
-import type { ToolCaller } from "@botyard/runtime"
 import { approvalRoutes } from "./approvals.ts"
+import type { ReviewRelay } from "./review/relay.ts"
+import { reviewRoutes, type ReviewTools } from "./review/routes.ts"
 import { match, sendError, sendJson, type Route } from "./http.ts"
 import type { QuoteDesk } from "./quotes/desk.ts"
 import type { SettingsStore } from "./quotes/settings.ts"
@@ -16,11 +17,15 @@ export type Middleware = (req: IncomingMessage, res: ServerResponse, next: () =>
 export type AppOptions = {
   botpage: BotPage
   /** Calls Botyard platform tools (@botyard/runtime). */
-  tools: ToolCaller
+  tools: ReviewTools
   /** The quotes this app serves. */
   desk: QuoteDesk
   /** Who approves. */
   settings: SettingsStore
+  /** Hands quotes to the reviewer bot and records its verdicts. */
+  relay: ReviewRelay
+  /** QUOTE_DESK_FILE_HOSTS: where verdict.json links may point. */
+  fileHosts: ReadonlySet<string>
   /** Built UI to serve (production), from `loadStatic`. */
   staticFiles?: StaticFiles
   /** Serves the UI in development (Vite). Used when `staticFiles` is not set. */
@@ -58,11 +63,25 @@ async function handleApi(
   }
 }
 
+/** The routes that serve the API table (shared/api.ts). */
+export function tableRoutes(
+  o: Pick<AppOptions, "botpage" | "tools" | "desk" | "settings" | "relay" | "fileHosts">
+): Route[] {
+  const { botpage, tools, desk, settings, relay, fileHosts } = o
+  return [
+    ...quoteRoutes(desk, { botpage, tools }),
+    ...approvalRoutes({ desk, settings, botpage, tools, relay }),
+    ...reviewRoutes({ desk, settings, botpage, tools, relay, fileHosts }),
+  ]
+}
+
 export function createApp({
   botpage,
   tools,
   desk,
   settings,
+  relay,
+  fileHosts,
   staticFiles,
   ui,
 }: AppOptions): Handler {
@@ -82,8 +101,7 @@ export function createApp({
         sendJson(res, 200, { viewer })
       }),
     },
-    ...quoteRoutes(desk, { botpage, tools }),
-    ...approvalRoutes({ desk, settings, botpage, tools }),
+    ...tableRoutes({ botpage, tools, desk, settings, relay, fileHosts }),
   ]
 
   return async (req, res) => {

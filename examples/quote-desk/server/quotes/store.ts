@@ -11,7 +11,7 @@ import { parseDeskState } from "./parse.ts"
  * file exists but cannot be read or parsed: the app refuses to start rather
  * than silently replace someone's data with defaults.
  */
-function readJson<T>(file: string, parse: (value: unknown) => T): T | null {
+export function readJson<T>(file: string, parse: (value: unknown) => T): T | null {
   let text: string
   try {
     text = readFileSync(file, "utf8")
@@ -24,7 +24,7 @@ function readJson<T>(file: string, parse: (value: unknown) => T): T | null {
 }
 
 /** Writes a temporary file, then renames it over the old one. Leaves no temporary file. */
-function writeJson(file: string, value: unknown): void {
+export function writeJson(file: string, value: unknown): void {
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   const tmp = `${file}.${String(process.pid)}.tmp`
   try {
