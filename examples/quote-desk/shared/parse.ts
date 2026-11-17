@@ -1,32 +1,21 @@
-// Parsers for quote records (the server's state file) and API responses (the UI).
+// Parsers for everything that crosses a boundary: request bodies, the stored
+// state, and API responses. They are the API's contract: the types in
+// types.ts are derived from what these return, so a parser and its type
+// cannot drift apart. Return types are inferred on purpose; do not annotate.
 import {
   APPROVER_ROLES,
   BUSINESS_ROLES,
+  CREDIT_DECISIONS,
+  DECISIONS,
+  EVENT_TYPES,
   FINANCE_ROLES,
-  type Approval,
-  type Approvals,
+  NEXT_ACTORS,
+  STANDINGS,
+  STATUSES,
+  TONES,
   type ApproverRole,
-  type CreditDecision,
-  type Decision,
-  type DeliveryEstimate,
-  type Line,
-  type MemberOption,
-  type Meta,
-  type Person,
-  type PricedLine,
-  type Pricing,
-  type Progress,
-  type QuarterRow,
-  type QuoteBase,
-  type QuoteEvent,
-  type QuoteRecord,
   type QuoteStatus,
-  type QuoteSummary,
-  type QuoteView,
-  type SentEmail,
-  type Standing,
-  type Tone,
-} from "./types.ts"
+} from "./domain.ts"
 import {
   ParseError,
   bool,
@@ -40,20 +29,10 @@ import {
   type Rec,
 } from "./narrow.ts"
 
-export const STATUSES: readonly QuoteStatus[] = [
-  "draft",
-  "finance_review",
-  "business_review",
-  "approved",
-  "sent",
-  "signed",
-]
-
 export const MAX_LINES = 50
 const MAX_QTY = 1_000_000
-const DECISIONS: readonly Decision[] = ["approve", "reject"]
 
-export function parseLine(value: unknown, at: string): Line {
+export function parseLine(value: unknown, at: string) {
   const r = record(value, at)
   const qty = num(r, "qty", at)
   if (!Number.isInteger(qty) || qty < 1 || qty > MAX_QTY) {
@@ -67,12 +46,12 @@ export function parseLine(value: unknown, at: string): Line {
   return { sku: str(r, "sku", at, 40), qty, unit_price_eur: price === 0 ? null : price }
 }
 
-function person(value: unknown, at: string): Person {
+function person(value: unknown, at: string) {
   const r = record(value, at)
   return { name: str(r, "name", at), email: strOrNull(r, "email", at, 320) }
 }
 
-function approval(value: unknown, at: string): Approval | null {
+function approval(value: unknown, at: string) {
   if (value === null) return null
   const r = record(value, at)
   return {
@@ -83,7 +62,7 @@ function approval(value: unknown, at: string): Approval | null {
   }
 }
 
-function approvals(value: unknown, at: string): Approvals {
+function approvals(value: unknown, at: string) {
   const r = record(value, at)
   return {
     bot_review: approval(r["bot_review"], `${at}.bot_review`),
@@ -92,10 +71,10 @@ function approvals(value: unknown, at: string): Approvals {
   }
 }
 
-function event(value: unknown, at: string): QuoteEvent {
+function event(value: unknown, at: string) {
   const r = record(value, at)
   const base = { at: str(r, "at", at), ts: str(r, "ts", at), by: str(r, "by", at) }
-  const type = oneOf(r, "type", ["created", "edited", "status", "approval", "comment"], at)
+  const type = oneOf(r, "type", EVENT_TYPES, at)
   switch (type) {
     case "created":
       return { ...base, type, on_behalf_of: strOrNull(r, "on_behalf_of", at) }
@@ -107,7 +86,7 @@ function event(value: unknown, at: string): QuoteEvent {
       return {
         ...base,
         type,
-        role: oneOf<ApproverRole>(r, "role", APPROVER_ROLES, at),
+        role: oneOf(r, "role", APPROVER_ROLES, at),
         decision: oneOf(r, "decision", DECISIONS, at),
         note: str(r, "note", at, 2000),
       }
@@ -116,7 +95,7 @@ function event(value: unknown, at: string): QuoteEvent {
   }
 }
 
-function email(value: unknown, at: string): SentEmail {
+function email(value: unknown, at: string) {
   const r = record(value, at)
   return {
     to: str(r, "to", at, 320),
@@ -126,6 +105,8 @@ function email(value: unknown, at: string): SentEmail {
     recorded_by: str(r, "recorded_by", at),
   }
 }
+
+type Approvals = ReturnType<typeof approvals>
 
 /** Fields a status adds. A quote may carry only those of its own status. */
 const LIFECYCLE_FIELDS = ["priced_on", "sign_by", "email", "signed_at"] as const
@@ -170,7 +151,8 @@ function checkApprovals(a: Approvals, status: QuoteStatus, at: string): void {
     throw new ParseError(`${at}.approvals: every ${status} approval is in; the quote has moved on`)
 }
 
-function quoteBase(r: Rec, at: string): QuoteBase {
+/** The fields every quote has, whatever its status. */
+export function parseQuoteBase(r: Rec, at: string) {
   return {
     id: str(r, "id", at, 40),
     owner: person(r["owner"], `${at}.owner`),
@@ -189,9 +171,9 @@ function quoteBase(r: Rec, at: string): QuoteBase {
 }
 
 /** One variant per status: the fields it requires are present, the others absent. */
-function quoteFields(r: Rec, at: string): QuoteRecord {
+function quoteFields(r: Rec, at: string) {
   const status = oneOf(r, "status", STATUSES, at)
-  const base = quoteBase(r, at)
+  const base = parseQuoteBase(r, at)
   checkApprovals(base.approvals, status, at)
   if (status === "draft") {
     absent(r, LIFECYCLE_FIELDS, status, at)
@@ -218,31 +200,24 @@ function quoteFields(r: Rec, at: string): QuoteRecord {
   }
 }
 
-export function parseQuoteRecord(value: unknown, at: string): QuoteRecord {
+export function parseQuoteRecord(value: unknown, at: string) {
   return quoteFields(record(value, at), at)
 }
 
 // ---------- API responses ----------
 
-const TONES: readonly Tone[] = ["muted", "info", "warning", "success"]
-const NEXT: readonly (ApproverRole | "owner" | "customer")[] = [
-  ...APPROVER_ROLES,
-  "owner",
-  "customer",
-]
-
-function progress(value: unknown, at: string): Progress {
+function progress(value: unknown, at: string) {
   const r = record(value, at)
   return {
     phase: str(r, "phase", at),
     label: str(r, "label", at),
     detail: str(r, "detail", at, 2000),
     tone: oneOf(r, "tone", TONES, at),
-    next: r["next"] === null ? null : oneOf(r, "next", NEXT, at),
+    next: r["next"] === null ? null : oneOf(r, "next", NEXT_ACTORS, at),
   }
 }
 
-function pricedLine(value: unknown, at: string): PricedLine {
+function pricedLine(value: unknown, at: string) {
   const r = record(value, at)
   const n = (key: string) => num(r, key, at)
   return {
@@ -259,14 +234,14 @@ function pricedLine(value: unknown, at: string): PricedLine {
   }
 }
 
-function delivery(value: unknown, at: string): DeliveryEstimate {
+function delivery(value: unknown, at: string) {
   const r = record(value, at)
   const option = str(r, "option", at, 40)
   if (oneOf(r, "kind", ["estimate", "unavailable"], at) === "unavailable") {
-    return { kind: "unavailable", option, error: str(r, "error", at) }
+    return { kind: "unavailable" as const, option, error: str(r, "error", at) }
   }
   return {
-    kind: "estimate",
+    kind: "estimate" as const,
     option,
     delivery_cost_eur: num(r, "delivery_cost_eur", at),
     earliest_delivery: str(r, "earliest_delivery", at),
@@ -283,15 +258,15 @@ function delivery(value: unknown, at: string): DeliveryEstimate {
   }
 }
 
-function credit(value: unknown, at: string): CreditDecision {
+function credit(value: unknown, at: string) {
   const r = record(value, at)
   return {
-    decision: oneOf(r, "decision", ["approve", "refer", "decline"], at),
+    decision: oneOf(r, "decision", CREDIT_DECISIONS, at),
     reason: str(r, "reason", at),
   }
 }
 
-export function parsePricing(value: unknown, at = "pricing"): Pricing {
+export function parsePricing(value: unknown, at = "pricing") {
   const r = record(value, at)
   const n = (key: string) => num(r, key, at)
   return {
@@ -316,7 +291,7 @@ export function parsePricing(value: unknown, at = "pricing"): Pricing {
   }
 }
 
-export function parseQuoteView(value: unknown, at = "quote"): QuoteView {
+export function parseQuoteView(value: unknown, at = "quote") {
   const r = record(value, at)
   return {
     ...quoteFields(r, at),
@@ -326,7 +301,7 @@ export function parseQuoteView(value: unknown, at = "quote"): QuoteView {
   }
 }
 
-export function parseQuoteSummaries(value: unknown, at = "body"): QuoteSummary[] {
+export function parseQuoteSummaries(value: unknown, at = "body") {
   return items(record(value, at), "quotes", at, 100_000, (v, p) => {
     const r = record(v, p)
     return {
@@ -344,14 +319,12 @@ export function parseQuoteSummaries(value: unknown, at = "body"): QuoteSummary[]
   })
 }
 
-const STANDINGS: readonly Standing[] = ["good", "watch", "hold"]
-
 function codeLabel(value: unknown, at: string) {
   const r = record(value, at)
   return { code: str(r, "code", at, 40), label: str(r, "label", at) }
 }
 
-export function parseMeta(value: unknown, at = "meta"): Meta {
+export function parseMeta(value: unknown, at = "meta") {
   const r = record(value, at)
   const settings = record(r["settings"], `${at}.settings`)
   return {
@@ -401,10 +374,7 @@ export function parseMeta(value: unknown, at = "meta"): Meta {
   }
 }
 
-export function parseQuarter(
-  value: unknown,
-  at = "quarter"
-): { quarter: string; territories: QuarterRow[] } {
+export function parseQuarter(value: unknown, at = "quarter") {
   const r = record(value, at)
   return {
     quarter: str(r, "quarter", at),
@@ -428,7 +398,7 @@ export function parseQuarter(
   }
 }
 
-export function parseMembers(value: unknown, at = "body"): MemberOption[] {
+export function parseMembers(value: unknown, at = "body") {
   return items(record(value, at), "members", at, 100_000, (v, p) => {
     const m = record(v, p)
     return {
@@ -437,4 +407,28 @@ export function parseMembers(value: unknown, at = "body"): MemberOption[] {
       email: strOrNull(m, "email", p, 320),
     }
   })
+}
+
+// ---------- requests ----------
+
+/** The builder's body for POST /api/quotes, PUT /api/quotes/:id and POST /api/preview. */
+export function parseQuoteInput(value: unknown) {
+  const r = record(value, "body")
+  const lines = items(r, "lines", "body", MAX_LINES, parseLine)
+  const skus = new Set(lines.map((l) => l.sku))
+  if (skus.size !== lines.length) throw new ParseError("body.lines: each product may appear once")
+  return {
+    /** Null: the viewer for a new quote, or the current owner for a draft being edited. */
+    owner_email: strOrNull(r, "owner_email", "body", 320),
+    account_id: str(r, "account_id", "body", 40),
+    territory: str(r, "territory", "body", 80),
+    region: str(r, "region", "body", 80),
+    delivery_option: str(r, "delivery_option", "body", 40),
+    terms: str(r, "terms", "body", 40),
+    lines,
+    order_discount_pct:
+      r["order_discount_pct"] === undefined ? 0 : num(r, "order_discount_pct", "body"),
+    order_discount_reason:
+      r["order_discount_reason"] === undefined ? "" : str(r, "order_discount_reason", "body"),
+  }
 }

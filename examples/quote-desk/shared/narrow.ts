@@ -71,3 +71,14 @@ export function strings(r: Rec, key: string, at: string, max: number): string[] 
     return v
   })
 }
+
+/**
+ * A parser's result, read-only all the way down. The API's types are this
+ * applied to what the parsers return (see types.ts), so code that builds a
+ * response may hand over read-only data without copying it.
+ */
+export type DeepReadonly<T> = T extends readonly (infer U)[]
+  ? readonly DeepReadonly<U>[]
+  : T extends object
+    ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
+    : T

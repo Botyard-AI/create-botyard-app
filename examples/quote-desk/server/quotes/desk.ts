@@ -30,6 +30,8 @@ import {
   rolesAt,
   signBy,
 } from "./engine.ts"
+import type { DeepReadonly } from "../../shared/narrow.ts"
+import type { parseDeskState } from "./parse.ts"
 
 /** A request the desk refuses. `status` is the HTTP status to answer with. */
 export class DeskError extends Error {
@@ -42,7 +44,7 @@ export class DeskError extends Error {
   }
 }
 
-export type DeskState = { readonly counter: number; readonly quotes: readonly QuoteRecord[] }
+export type DeskState = DeepReadonly<ReturnType<typeof parseDeskState>>
 
 export type DeskOptions = {
   erp: Erp
