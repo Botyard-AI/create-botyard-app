@@ -12,3 +12,6 @@ tooling/eslint-config/react.js
 templates/*/eslint/
 # npm writes these; keep them byte-identical to what npm generates.
 templates/*/package-lock.json
+# Examples are standalone npm apps with their own Prettier config and
+# format:check, run by scripts/check-examples.sh.
+examples/

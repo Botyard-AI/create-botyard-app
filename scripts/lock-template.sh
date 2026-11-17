@@ -1,27 +1,37 @@
 #!/usr/bin/env bash
 # Regenerates templates/<name>/package-lock.json, the lockfile generated apps
-# install from, under this repository's supply-chain rules:
+# install from, or examples/<name>/package-lock.json, under this repository's
+# supply-chain rules:
 #
 # - Every third-party version is resolved as of 3 days ago (npm --before),
 #   matching pnpm-workspace.yaml's minimumReleaseAge.
 # - The template's own packages, "workspace:*" in this repository, are locked
 #   at the version in packages/*/package.json, as the CLI build pins them.
 #   Only the packages in OWN may be; anything else fails.
+# - An example is built on our packages as published: it pins each package in
+#   OWN to an exact version (as a generated app does), and is locked at that
+#   version. It may not use "workspace:" at all.
 # - Those are added in a second step without the age limit, which is then
 #   checked to have added exactly those packages and changed nothing else: no
 #   new or different third-party entry, no dependencies, no install scripts.
 # - No install scripts run (--package-lock-only --ignore-scripts).
 #
 # Usage: scripts/lock-template.sh full-app
+#        scripts/lock-template.sh examples/quote-desk
 set -euo pipefail
 
 # Our packages, published from this repository by release.yml with provenance.
 OWN="@botyard/runtime @botyard/botpage"
 
-name="${1:?usage: scripts/lock-template.sh <template>}"
+name="${1:?usage: scripts/lock-template.sh <template> | examples/<name>}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
-template="$root/templates/$name"
-[ -f "$template/package.json" ] || { echo "no template $name" >&2; exit 1; }
+case "$name" in
+  examples/*/* | examples/ | examples) echo "usage: examples/<name>" >&2; exit 1 ;;
+  examples/*) kind=example; template="$root/$name" ;;
+  */*) echo "no template $name" >&2; exit 1 ;;
+  *) kind=template; template="$root/templates/$name"; name="templates/$name" ;;
+esac
+[ -f "$template/package.json" ] || { echo "no $kind $name" >&2; exit 1; }
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
@@ -29,10 +39,10 @@ before="$(node -e 'console.log(new Date(Date.now() - 3 * 86400e3).toISOString())
 
 # Step 1: the template without its own packages, resolved as of $before.
 # Writes their name@version list to own.txt.
-OWN="$OWN" node - "$root" "$template/package.json" "$work" <<'EOF'
+OWN="$OWN" node - "$root" "$template/package.json" "$work" "$kind" <<'EOF'
 const fs = require("node:fs")
 const path = require("node:path")
-const [root, pkgFile, work] = process.argv.slice(2)
+const [root, pkgFile, work, kind] = process.argv.slice(2)
 const allowed = new Set(process.env.OWN.split(" "))
 const versions = new Map()
 for (const dir of fs.readdirSync(path.join(root, "packages"))) {
@@ -43,8 +53,23 @@ for (const dir of fs.readdirSync(path.join(root, "packages"))) {
 }
 const pkg = JSON.parse(fs.readFileSync(pkgFile, "utf8"))
 const own = []
+const EXACT = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
 for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
   for (const [dep, spec] of Object.entries(pkg[field] ?? {})) {
+    if (kind === "example") {
+      if (spec.startsWith("workspace:")) {
+        console.error(`${field}.${dep} is "${spec}": examples use our packages as published, never "workspace:".`)
+        process.exit(1)
+      }
+      if (!allowed.has(dep)) continue
+      if (field !== "dependencies" || !EXACT.test(spec)) {
+        console.error(`${field}.${dep} is "${spec}": an example pins our packages to an exact version in dependencies.`)
+        process.exit(1)
+      }
+      own.push(`${dep}@${spec}`)
+      delete pkg[field][dep]
+      continue
+    }
     if (!spec.startsWith("workspace:")) continue
     if (field !== "dependencies" || spec !== "workspace:*" || !allowed.has(dep) || !versions.has(dep)) {
       console.error(`${field}.${dep} is "${spec}": only dependencies in OWN may be "workspace:*".`)
@@ -106,4 +131,4 @@ if (problems.length > 0) {
 EOF
 
 cp "$work/package-lock.json" "$template/package-lock.json"
-echo "Wrote templates/$name/package-lock.json (third-party versions as of $before)."
+echo "Wrote $name/package-lock.json (third-party versions as of $before)."
