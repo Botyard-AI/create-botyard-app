@@ -2,7 +2,7 @@
 // entry, with the entry's method and path, and checks the answer with the
 // entry's parser. Nothing from the network reaches the UI unchecked, and no
 // path, method or parser is paired by hand here.
-import { API, type Endpoint, type ParamName, type PathParams } from "../../shared/api.ts"
+import { API, type Endpoint, type PathParams, type Query } from "../../shared/api.ts"
 import type { DeepReadonly } from "../../shared/narrow.ts"
 import { isRecord } from "../../shared/narrow.ts"
 import type { QuoteInput } from "../../shared/types.ts"
@@ -18,39 +18,55 @@ export class ApiError extends Error {
   }
 }
 
-/** What calling an entry takes: its path parameters and its body, when it has them. */
-export type CallArgs<P extends string, B> = { readonly signal?: AbortSignal | undefined } & ([
-  ParamName<P>,
-] extends [never]
-  ? unknown
-  : { readonly params: PathParams<P> }) &
-  ([B] extends [null] ? unknown : { readonly body: DeepReadonly<B> })
+/**
+ * What calling an entry takes: its path parameters, body and query, each typed
+ * from the entry. Entries without one take `{}` or null there (see NONE).
+ */
+export type CallArgs<P extends string, B, Q extends Query> = {
+  readonly params: PathParams<P>
+  readonly body: DeepReadonly<B>
+  readonly query: Q
+  readonly signal?: AbortSignal | undefined
+}
+
+/** The arguments of an entry with no path parameters, body or query. */
+const NONE = { params: {}, body: null, query: null } as const
 
 /** Fills a path's `:name` segments, each encoded as one segment. */
-function fillPath(path: string, params: unknown): string {
+export function fillPath(path: string, params: Readonly<Record<string, string>>): string {
   return path
     .split("/")
     .map((segment) => {
       if (!segment.startsWith(":")) return segment
-      const value = isRecord(params) ? params[segment.slice(1)] : undefined
-      if (typeof value !== "string") throw new Error(`${path}: no value for ${segment}`)
+      const value = params[segment.slice(1)]
+      if (value === undefined) throw new Error(`${path}: no value for ${segment}`)
       return encodeURIComponent(value)
     })
     .join("/")
 }
 
+/** The query string for a parsed query; null values are left out. */
+export function queryString(query: Query): string {
+  const search = new URLSearchParams()
+  for (const [name, value] of Object.entries(query ?? {})) {
+    if (value !== null) search.set(name, value)
+  }
+  return search.size === 0 ? "" : `?${search.toString()}`
+}
+
 /** Calls one API entry and returns its parsed answer. */
-export async function call<P extends string, B, R, Q>(
+export async function call<P extends string, B, R, Q extends Query>(
   def: Endpoint<P, B, R, Q>,
-  args: CallArgs<P, B>
+  args: NoInfer<CallArgs<P, B, Q>>
 ): Promise<R> {
-  const path = fillPath(def.path, Reflect.get(args, "params"))
-  const body: unknown = Reflect.get(args, "body")
-  const res = await fetch(path, {
+  const path = fillPath(def.path, args.params)
+  // Entries without a body (null) send none, which the server reads as {}.
+  const payload: unknown = args.body
+  const res = await fetch(`${path}${queryString(args.query)}`, {
     method: def.method,
     headers: { accept: "application/json", "content-type": "application/json" },
     signal: args.signal ?? null,
-    ...(body !== undefined && { body: JSON.stringify(body) }),
+    ...(payload !== null && { body: JSON.stringify(payload) }),
   })
   const answer: unknown = await res.json().catch(() => null)
   if (!res.ok) {
@@ -62,31 +78,34 @@ export async function call<P extends string, B, R, Q>(
 
 // Named calls for the pages. Each is one entry of the table.
 
-export const getMeta = (signal?: AbortSignal) => call(API.meta, { signal })
+export const getMeta = (signal?: AbortSignal) => call(API.meta, { ...NONE, signal })
 
 export const getMembers = async (signal?: AbortSignal) =>
-  (await call(API.members, { signal })).members
+  (await call(API.members, { ...NONE, signal })).members
 
 export const preview = (input: QuoteInput, signal?: AbortSignal) =>
-  call(API.preview, { body: input, signal })
+  call(API.preview, { ...NONE, body: input, signal })
 
 export const listQuotes = async (signal?: AbortSignal) =>
-  (await call(API.listQuotes, { signal })).quotes
+  (await call(API.listQuotes, { ...NONE, signal })).quotes
 
 export const getQuote = (id: string, signal?: AbortSignal) =>
-  call(API.getQuote, { params: { id }, signal })
+  call(API.getQuote, { ...NONE, params: { id }, signal })
 
 export const saveQuote = (id: string | null, input: QuoteInput) =>
   id === null
-    ? call(API.createQuote, { body: input })
-    : call(API.updateQuote, { params: { id }, body: input })
+    ? call(API.createQuote, { ...NONE, body: input })
+    : call(API.updateQuote, { ...NONE, params: { id }, body: input })
 
 export type QuoteAction = "submit" | "send" | "sign"
 
 const ACTIONS = { submit: API.submitQuote, send: API.sendQuote, sign: API.signQuote } as const
 
-export const act = (id: string, action: QuoteAction) => call(ACTIONS[action], { params: { id } })
+export const act = (id: string, action: QuoteAction) =>
+  call(ACTIONS[action], { ...NONE, params: { id } })
 
-export const getQuarter = (signal?: AbortSignal) => call(API.quarter, { signal })
+/** A quarter's close numbers; no quarter is the current one. */
+export const getQuarter = (quarter: string | null, signal?: AbortSignal) =>
+  call(API.quarter, { ...NONE, query: { quarter }, signal })
 
-export const resetDemo = () => call(API.reset, {})
+export const resetDemo = () => call(API.reset, NONE)

@@ -5,12 +5,12 @@
 import type { IncomingMessage } from "node:http"
 import type { BotPage, MemberViewer } from "@botyard/botpage"
 import { requireMember } from "@botyard/botpage/node"
-import type { Endpoint, ParamName } from "../shared/api.ts"
+import type { Endpoint, ParamName, Query } from "../shared/api.ts"
 import type { DeepReadonly } from "../shared/narrow.ts"
 import { HttpError, readJson, sendJson, type Route } from "./http.ts"
 
 /** What a handler gets: the signed-in member, and the request already parsed. */
-export type EndpointContext<P extends string, B, Q> = {
+export type EndpointContext<P extends string, B, Q extends Query> = {
   readonly req: IncomingMessage
   readonly member: MemberViewer
   /** A path parameter. Only the names in the entry's path are accepted. */
@@ -19,15 +19,15 @@ export type EndpointContext<P extends string, B, Q> = {
   readonly query: Q
 }
 
-export type EndpointHandler<P extends string, B, R, Q> = (
+export type EndpointHandler<P extends string, B, R, Q extends Query> = (
   ctx: EndpointContext<P, B, Q>
 ) => DeepReadonly<R> | Promise<DeepReadonly<R>>
 
 /** The route for one API entry, for org members (optionally only some roles). */
-export function endpoint<P extends string, B, R, Q>(
+export function endpoint<P extends string, B, R, Q extends Query>(
   botpage: BotPage,
   def: Endpoint<P, B, R, Q>,
-  handler: EndpointHandler<P, B, R, Q>,
+  handler: NoInfer<EndpointHandler<P, B, R, Q>>,
   roles?: readonly string[]
 ): Route {
   return {

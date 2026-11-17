@@ -19,12 +19,20 @@ import {
 
 export type Method = "GET" | "POST" | "PUT"
 
+/** A parsed query: named values, absent ones null. Null for endpoints that take none. */
+export type Query = Readonly<Record<string, string | null>> | null
+
 /**
  * One endpoint. `P` is the path, with `:name` for a path parameter; `B` the
  * parsed request body (null when it takes none); `R` the parsed response;
  * `Q` the parsed query.
  */
-export type Endpoint<P extends string = string, B = unknown, R = unknown, Q = unknown> = {
+export type Endpoint<
+  P extends string = string,
+  B = unknown,
+  R = unknown,
+  Q extends Query = Query,
+> = {
   readonly method: Method
   readonly path: P
   /** The request body's parser. `noBody` for endpoints that take none. */

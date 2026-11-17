@@ -14,7 +14,7 @@ export function QuarterClose() {
   const [s, setS] = useState<State>({ state: "loading" })
   useEffect(() => {
     const controller = new AbortController()
-    getQuarter(controller.signal)
+    getQuarter(null, controller.signal)
       .then((q) => {
         setS({ state: "ready", quarter: q.quarter, rows: q.territories })
       })
