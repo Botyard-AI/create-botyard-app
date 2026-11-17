@@ -301,8 +301,9 @@ export function parseQuoteView(value: unknown, at = "quote") {
   }
 }
 
-export function parseQuoteSummaries(value: unknown, at = "body") {
-  return items(record(value, at), "quotes", at, 100_000, (v, p) => {
+/** GET /api/quotes. */
+export function parseQuoteList(value: unknown, at = "body") {
+  const quotes = items(record(value, at), "quotes", at, 100_000, (v, p) => {
     const r = record(v, p)
     return {
       id: str(r, "id", p, 40),
@@ -317,6 +318,7 @@ export function parseQuoteSummaries(value: unknown, at = "body") {
       lines: num(r, "lines", p),
     }
   })
+  return { quotes }
 }
 
 function codeLabel(value: unknown, at: string) {
@@ -374,6 +376,7 @@ export function parseMeta(value: unknown, at = "meta") {
   }
 }
 
+/** GET /api/quarter. */
 export function parseQuarter(value: unknown, at = "quarter") {
   const r = record(value, at)
   return {
@@ -398,8 +401,9 @@ export function parseQuarter(value: unknown, at = "quarter") {
   }
 }
 
-export function parseMembers(value: unknown, at = "body") {
-  return items(record(value, at), "members", at, 100_000, (v, p) => {
+/** GET /api/members. */
+export function parseMemberList(value: unknown, at = "body") {
+  const members = items(record(value, at), "members", at, 100_000, (v, p) => {
     const m = record(v, p)
     return {
       user_id: str(m, "user_id", p),
@@ -407,9 +411,31 @@ export function parseMembers(value: unknown, at = "body") {
       email: strOrNull(m, "email", p, 320),
     }
   })
+  return { members }
+}
+
+/** POST /api/reset. */
+export function parseResetResult(value: unknown) {
+  return { quotes: num(record(value, "body"), "quotes", "body") }
 }
 
 // ---------- requests ----------
+
+/** For endpoints that take no body: anything but an object is refused, and nothing is read. */
+export function noBody(value: unknown) {
+  record(value, "body")
+  return null
+}
+
+const QUARTER = /^\d{4}-Q[1-4]$/
+
+/** GET /api/quarter?quarter=2026-Q4. No quarter: the current one. */
+export function parseQuarterQuery(query: URLSearchParams) {
+  const quarter = query.get("quarter")
+  if (quarter !== null && !QUARTER.test(quarter))
+    throw new ParseError("quarter: must look like 2026-Q4")
+  return { quarter }
+}
 
 /** The builder's body for POST /api/quotes, PUT /api/quotes/:id and POST /api/preview. */
 export function parseQuoteInput(value: unknown) {

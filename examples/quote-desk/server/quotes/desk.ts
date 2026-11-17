@@ -10,7 +10,8 @@ import type {
   Meta,
   Person,
   Progress,
-  QuarterRow,
+  Quarter,
+  ResetResult,
   QuoteEvent,
   QuoteInput,
   QuoteBase,
@@ -160,7 +161,7 @@ export class QuoteDesk {
     }
   }
 
-  quarter(quarter: string = quarterOf(this.today)): { quarter: string; territories: QuarterRow[] } {
+  quarter(quarter: string = quarterOf(this.today)): Quarter {
     const quotes = this.#state.quotes.map((record) => ({
       record,
       total_eur: this.#pricing(record).total_eur,
@@ -289,7 +290,7 @@ export class QuoteDesk {
   }
 
   /** Back to the seeded demo data. */
-  reset(): { quotes: number } {
+  reset(): ResetResult {
     this.#commit(this.#fresh())
     return { quotes: this.#state.quotes.length }
   }

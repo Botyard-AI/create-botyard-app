@@ -21,7 +21,7 @@ import {
   parsePricing,
   parseQuarter,
   parseQuoteRecord,
-  parseQuoteSummaries,
+  parseQuoteList,
   parseQuoteView,
 } from "../shared/parse.ts"
 import { isRecord } from "../shared/narrow.ts"
@@ -410,7 +410,7 @@ describe("the UI's parsers read what the API sends", () => {
     expect(parseMeta(wire(desk.meta()))).toEqual(desk.meta())
     expect(parsePricing(wire(desk.preview(STEP_1)))).toEqual(desk.preview(STEP_1))
     expect(parseQuoteView(wire(desk.get(id)))).toEqual(desk.get(id))
-    expect(parseQuoteSummaries(wire({ quotes: desk.list() }))).toEqual(desk.list())
+    expect(parseQuoteList(wire({ quotes: desk.list() }))).toEqual({ quotes: desk.list() })
     expect(parseQuarter(wire(desk.quarter()))).toEqual(desk.quarter())
   })
 })

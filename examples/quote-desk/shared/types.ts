@@ -50,16 +50,22 @@ export type CreditDecision = Pricing["credit"]
 export type QuoteView = Wire<typeof P.parseQuoteView>
 /** One human-readable "what is happening now" for a quote. */
 export type Progress = QuoteView["progress"]
+/** GET /api/quotes. */
+export type QuoteList = Wire<typeof P.parseQuoteList>
 /** A row in GET /api/quotes. */
-export type QuoteSummary = Wire<typeof P.parseQuoteSummaries>[number]
+export type QuoteSummary = QuoteList["quotes"][number]
 /** GET /api/meta: what the builder needs to draw its pickers. No costs. */
 export type Meta = Wire<typeof P.parseMeta>
 /** GET /api/quarter. */
 export type Quarter = Wire<typeof P.parseQuarter>
 /** Quarter-close numbers for one territory. */
 export type QuarterRow = Quarter["territories"][number]
-/** An org member, for the owner picker (GET /api/members). */
-export type MemberOption = Wire<typeof P.parseMembers>[number]
+/** GET /api/members. */
+export type MemberList = Wire<typeof P.parseMemberList>
+/** An org member, for the owner picker. */
+export type MemberOption = MemberList["members"][number]
+/** POST /api/reset. */
+export type ResetResult = Wire<typeof P.parseResetResult>
 
 // ---------- requests ----------
 
