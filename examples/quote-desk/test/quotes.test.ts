@@ -5,7 +5,14 @@ import { describe, expect, test } from "vitest"
 import type { QuoteInput } from "../shared/types.ts"
 import { CRM_SEED } from "../server/quotes/crm-seed.ts"
 import { DeskError, QuoteDesk, type DeskState } from "../server/quotes/desk.ts"
-import { quarterEnd, quarterOf, signBy } from "../server/quotes/engine.ts"
+import {
+  emptyApprovals,
+  nextStatus,
+  quarterEnd,
+  quarterOf,
+  rolesAt,
+  signBy,
+} from "../server/quotes/engine.ts"
 import { ERP_SEED } from "../server/quotes/erp-seed.ts"
 import { ParseError, parseDeskState, parseQuoteInput } from "../server/quotes/parse.ts"
 import { loadState, saveState } from "../server/quotes/store.ts"
@@ -288,6 +295,25 @@ describe("parsing untrusted input", () => {
     )
     const bad: unknown = JSON.parse(text)
     expect(() => parseDeskState(bad)).toThrow(/events\[0\]\.type/)
+  })
+})
+
+describe("review stages", () => {
+  const yes = { decision: "approve", note: "", by: "x", at: "2026-11-10" } as const
+
+  test("each stage has its own deciders", () => {
+    expect(rolesAt("finance_review")).toEqual(["bot_review", "finance"])
+    expect(rolesAt("business_review")).toEqual(["business"])
+  })
+
+  test.each([
+    ["finance_review", {}, "finance_review"],
+    ["finance_review", { bot_review: yes }, "finance_review"],
+    ["finance_review", { bot_review: yes, finance: yes }, "business_review"],
+    ["business_review", { bot_review: yes, finance: yes }, "business_review"],
+    ["business_review", { bot_review: yes, finance: yes, business: yes }, "approved"],
+  ] as const)("%s with %o moves to %s", (stage, given, to) => {
+    expect(nextStatus(stage, { ...emptyApprovals(), ...given })).toBe(to)
   })
 })
 

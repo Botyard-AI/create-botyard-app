@@ -266,15 +266,26 @@ export function emptyApprovals(): Approvals {
   return { bot_review: null, finance: null, business: null }
 }
 
+/**
+ * Each review stage: who decides there, and where the quote goes once they
+ * have all approved. A Record, so a new stage cannot compile without both.
+ */
+const STAGES: Readonly<
+  Record<ReviewStage, { roles: readonly ApproverRole[]; then: ReviewStage | "approved" }>
+> = {
+  finance_review: { roles: FINANCE_ROLES, then: "business_review" },
+  business_review: { roles: BUSINESS_ROLES, then: "approved" },
+}
+
 /** The roles that decide at a review stage. */
 export function rolesAt(stage: ReviewStage): readonly ApproverRole[] {
-  return stage === "finance_review" ? FINANCE_ROLES : BUSINESS_ROLES
+  return STAGES[stage].roles
 }
 
 /** Where a quote goes once every role at its stage has approved. */
 export function nextStatus(stage: ReviewStage, approvals: Approvals): ReviewStage | "approved" {
-  if (!rolesAt(stage).every((r) => approvals[r]?.decision === "approve")) return stage
-  return stage === "finance_review" ? "business_review" : "approved"
+  const { roles, then } = STAGES[stage]
+  return roles.every((r) => approvals[r]?.decision === "approve") ? then : stage
 }
 
 /** Quarter-close view: budget, signed, pipeline and headroom per territory. */
