@@ -41,7 +41,12 @@ changelog when we land it.
   format and knip skip them, and `scripts/check-examples.sh` (run by CI)
   installs each one with `npm ci` and runs its own checks. After changing an
   example's dependencies, run `scripts/lock-template.sh examples/<name>`.
-- Third-party actions are pinned to full commit SHAs and must be on the
-  allow-list in `scripts/apply-repo-settings.sh`.
+- Actions are referenced by exact release tag and pinned to commits by
+  `.github/workflows/actions.lock`, including the actions they call in turn.
+  After adding, removing or changing any `uses:`, run `gh actions-lock` (install
+  once with `gh extension install github/gh-actions-lock`) and commit the
+  lockfile with the workflow. The `actions-lock` check fails on a missing or
+  stale lockfile. New actions must also be on the allow-list in
+  `scripts/apply-repo-settings.sh`. See `docs/releasing.md`.
 - Repository settings are code: change `.github/rulesets/` or
   `scripts/apply-repo-settings.sh` in a PR, then an org admin re-runs the script.
