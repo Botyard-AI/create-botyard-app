@@ -37,18 +37,18 @@ test("the file is synced before the rename, then its directory and each one crea
   expect(synced).toEqual(["tmp", "data/reviews", "data", "."])
 })
 
-test("a directory sync that fails after the rename is not a failed save", () => {
+test("a directory sync that fails after the rename is reported, not thrown", () => {
   const file = path.join(tempDir(), "state.json")
   writeJson(file, { n: 1 })
   const failDirs = (p: string) => {
     if (!p.endsWith(".tmp")) throw new Error("EIO")
     syncPath(p)
   }
-  // Returns normally: the caller's state and the disk agree on the new value.
-  expect(() => {
-    writeJson(file, { n: 2 }, failDirs)
-  }).not.toThrow()
+  // Returns normally, reporting it as not durable: the caller's state and the
+  // disk agree on the new value, but a power cut could still undo it.
+  expect(writeJson(file, { n: 2 }, failDirs)).toBe(false)
   expect(read(file)).toEqual({ n: 2 })
+  expect(writeJson(file, { n: 3 })).toBe(true)
 })
 
 test("a file sync that fails before the rename is a failed save, and nothing changes", () => {

@@ -303,7 +303,7 @@ export class ReviewRelay {
     const bound: Reviewer = { id: reviewer.id, slug: reviewer.slug, name: reviewer.name }
     // Saved first: if this throws, nothing is created. From here on, a create
     // that is not followed by the task being saved is never repeated.
-    this.#o.handoffs.set({
+    const durable = this.#o.handoffs.set({
       kind: "creating",
       quote_id: quote.id,
       round,
@@ -311,6 +311,14 @@ export class ReviewRelay {
       board,
       reviewer: bound,
     })
+    if (!durable) {
+      // Written, but a power cut could lose it: don't create on that. Forget
+      // the intent (so it isn't taken for an interrupted create) and try again
+      // next tick.
+      this.#log(`${quote.id}: the handoff could not be synced to disk; trying again`)
+      this.#o.handoffs.delete(quote.id)
+      return
+    }
     let task
     try {
       task = await createReviewTask(this.#o.tools, {

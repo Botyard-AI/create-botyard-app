@@ -46,11 +46,11 @@ export function syncPath(p: string): void {
  * Writes a temporary file, syncs it, then renames it over the old one. The
  * rename is the commit: once it is done the new state is the state, and
  * writeJson returns normally. Syncing the directories afterwards (the
- * rename, and any directory just created) makes it survive a power cut, but
- * is best effort: if it fails, the write still happened, so it is not
- * reported as a failed save. Leaves no temporary file.
+ * rename, and any directory just created) makes it survive a power cut.
+ * Returns whether that worked: false means written, but a power cut could
+ * still undo it. Leaves no temporary file.
  */
-export function writeJson(file: string, value: unknown, sync = syncPath): void {
+export function writeJson(file: string, value: unknown, sync = syncPath): boolean {
   const dir = path.dirname(file)
   const created = mkdirSync(dir, { recursive: true, mode: 0o700 })
   const tmp = `${file}.${String(process.pid)}.tmp`
@@ -66,13 +66,15 @@ export function writeJson(file: string, value: unknown, sync = syncPath): void {
   const dirs = [dir]
   if (created !== undefined)
     for (let d = dir; d !== path.dirname(created); d = path.dirname(d)) dirs.push(path.dirname(d))
+  let durable = true
   for (const d of dirs) {
     try {
       sync(d)
     } catch {
-      // Best effort, see above. Some filesystems can't sync a directory at all.
+      durable = false // written, not proven durable: see above
     }
   }
+  return durable
 }
 
 export function loadState(file: string): DeskState | null {

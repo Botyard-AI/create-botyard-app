@@ -85,9 +85,7 @@ const settings = new SettingsStore({
 const handoffsFile = path.join(dataDir, "handoffs.json")
 const handoffs = new HandoffStore({
   handoffs: readJson(handoffsFile, parseHandoffs),
-  save: (next) => {
-    writeJson(handoffsFile, { handoffs: next })
-  },
+  save: (next) => writeJson(handoffsFile, { handoffs: next }),
 })
 const fileHosts = parseFileHosts(process.env["QUOTE_DESK_FILE_HOSTS"])
 const relay = new ReviewRelay({ desk, settings, handoffs, tools: runtime, fileHosts })

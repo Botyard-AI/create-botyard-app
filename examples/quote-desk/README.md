@@ -88,8 +88,9 @@ waiting for the reviewer bot:
   first. If it stops between the create and saving the task (a crash, a full
   disk), it never creates the task again: the quote goes to people, and the
   page says to check the board for the task. State files are synced to disk
-  on every write; where the filesystem can't sync a directory, a power cut at
-  the wrong moment could still cost the intent, and a second task appear.
+  on every write, and the task is created only once its intent is synced; if
+  syncing fails, the app tries again on the next pass. That relies on the disk
+  keeping what it reports as synced.
 
 The quote page shows the task, its column, and how long it has waited.
 

@@ -559,7 +559,12 @@ describe("only the reviewer's own verdict counts", () => {
 describe("a signed link never leaks", () => {
   test("a stream that fails quoting the link leaves no trace of it", async () => {
     const saved: string[] = []
-    const handoffs = new HandoffStore({ save: (h) => saved.push(JSON.stringify(h)) })
+    const handoffs = new HandoffStore({
+      save: (h) => {
+        saved.push(JSON.stringify(h))
+        return true
+      },
+    })
     const t = setup(SETUP, [FILES], handoffs)
     const id = t.submit()
     await t.relay.tick()
@@ -584,6 +589,7 @@ describe("one task per submission", () => {
     const handoffs = new HandoffStore({
       save: (h) => {
         if (failTask && h.some((x) => x.kind === "task")) throw new Error("disk full")
+        return true
       },
     })
     const { platform, relay, desk, later, submit } = setup(SETUP, [FILES], handoffs)
@@ -601,9 +607,32 @@ describe("one task per submission", () => {
     })
   })
 
+  test("an intent that isn't durable is not acted on: no create, then one on the next tick", async () => {
+    let durable = false
+    const handoffs = new HandoffStore({
+      // Written, but the directory sync failed (see writeJson): not durable.
+      save: () => durable,
+    })
+    const { platform, relay, desk, submit, logs } = setup(SETUP, [FILES], handoffs)
+    const id = submit()
+    await relay.tick()
+    expect(platform.count("create_task", id)).toBe(0)
+    expect(relay.state(desk.get(id))).toEqual({ kind: "pending" })
+    expect(logs).toContain(`${id}: the handoff could not be synced to disk; trying again`)
+    durable = true
+    await relay.tick()
+    expect(platform.count("create_task", id)).toBe(1)
+    expect(relay.state(desk.get(id))).toMatchObject({ kind: "task" })
+  })
+
   test("after a crash mid-create, a restarted relay does not create again", async () => {
     const saved: Handoff[][] = []
-    const handoffs = new HandoffStore({ save: (h) => saved.push([...h]) })
+    const handoffs = new HandoffStore({
+      save: (h) => {
+        saved.push([...h])
+        return true
+      },
+    })
     const { platform, desk, submit } = setup(SETUP, [FILES], handoffs)
     const id = submit()
     // The crash: the intent is on disk, the create went out, nothing after it.

@@ -93,15 +93,19 @@ export type CreatingHandoff = Extract<Handoff, { kind: "creating" }>
 export type Reviewer = TaskHandoff["reviewer"]
 export type ManualHandoff = Extract<Handoff, { kind: "manual" }>
 
+/**
+ * Saves the handoffs. Throws when nothing was written; returns false when it
+ * was written but may not survive a power cut (see writeJson).
+ */
+export type SaveHandoffs = (handoffs: readonly Handoff[]) => boolean
+
 export class HandoffStore {
   #byQuote: ReadonlyMap<string, Handoff>
-  readonly #save: (handoffs: readonly Handoff[]) => void
+  readonly #save: SaveHandoffs
 
-  constructor(
-    options: { handoffs?: readonly Handoff[] | null; save?: (h: readonly Handoff[]) => void } = {}
-  ) {
+  constructor(options: { handoffs?: readonly Handoff[] | null; save?: SaveHandoffs } = {}) {
     this.#byQuote = new Map((options.handoffs ?? []).map((h) => [h.quote_id, h]))
-    this.#save = options.save ?? (() => undefined)
+    this.#save = options.save ?? (() => true)
   }
 
   get(quoteId: string): Handoff | undefined {
@@ -112,9 +116,12 @@ export class HandoffStore {
     return [...this.#byQuote.values()]
   }
 
-  /** Saves, then publishes: a failed save changes nothing. */
-  set(h: Handoff): void {
-    this.#commit(new Map([...this.#byQuote, [h.quote_id, h]]))
+  /**
+   * Saves, then publishes: a failed save changes nothing. Returns whether the
+   * save is durable (false: written, but a power cut could still lose it).
+   */
+  set(h: Handoff): boolean {
+    return this.#commit(new Map([...this.#byQuote, [h.quote_id, h]]))
   }
 
   /** Forgets a quote's handoff. */
@@ -129,8 +136,9 @@ export class HandoffStore {
     if (next.size !== this.#byQuote.size) this.#commit(next)
   }
 
-  #commit(next: ReadonlyMap<string, Handoff>): void {
-    this.#save([...next.values()])
+  #commit(next: ReadonlyMap<string, Handoff>): boolean {
+    const durable = this.#save([...next.values()])
     this.#byQuote = next
+    return durable
   }
 }
