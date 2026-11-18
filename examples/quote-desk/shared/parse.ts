@@ -484,7 +484,7 @@ function slugOrNull(r: Rec, key: string, at: string, what: string): string | nul
 }
 
 /** A conversation id: a UUID. */
-const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+export const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export function parseSettings(value: unknown, at = "settings") {
   const r = record(value, at)
