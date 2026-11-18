@@ -74,6 +74,8 @@ export class Notifier {
   readonly #attempts = new Map<string, number>()
   /** Due notices with nobody to tell, logged once. */
   readonly #unaddressed = new Set<string>()
+  /** The notices changed, and the last save of them failed. */
+  #dirty = false
   #timer: ReturnType<typeof setInterval> | null = null
   #running: Promise<void> | null = null
   readonly #now: () => Date
@@ -122,6 +124,7 @@ export class Notifier {
   }
 
   async #pass(): Promise<void> {
+    this.#flush()
     for (const { quote, due } of await this.due()) {
       if (this.#done.has(due.key)) continue
       if (due.userIds.length === 0) {
@@ -242,15 +245,23 @@ export class Notifier {
 
   /**
    * Remembers a notice, then saves. Memory comes first: a save that fails
-   * must not send the notice again. It is logged; only a restart before the
-   * next good save can repeat the notice.
+   * must not send the notice again. It is logged and retried every pass;
+   * only a restart before the next good save can repeat the notice.
    */
   #record(key: string, outcome: Notice["outcome"]): void {
     const n: Notice = { key, outcome, at: this.#now().toISOString() }
     this.#done = new Map([...this.#done, [key, n]])
     this.#attempts.delete(key)
+    this.#dirty = true
+    this.#flush()
+  }
+
+  /** Saves the notices if they changed since the last good save; a failure is retried next pass. */
+  #flush(): void {
+    if (!this.#dirty) return
     try {
       this.#o.save?.([...this.#done.values()])
+      this.#dirty = false
     } catch (err) {
       this.#log(`saving notices failed: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -275,10 +286,16 @@ function lastTs(events: readonly QuoteEvent[], match: (e: QuoteEvent) => boolean
 /** QUOTE_DESK_PAGE_URL: the published page, https, without a trailing slash. */
 export function pageUrl(raw: string | undefined): string | null {
   if (raw === undefined || raw === "") return null
-  const url = new URL(raw)
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    throw new Error("QUOTE_DESK_PAGE_URL is not a URL") // without the value: it may hold a secret
+  }
   if (url.protocol !== "https:") throw new Error("QUOTE_DESK_PAGE_URL must be an https URL")
   // It goes into every notice: no credentials, and nothing after the path.
-  if (url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "")
+  // A bare "?" or "#" leaves search and hash empty, so check the text too.
+  if (url.username !== "" || url.password !== "" || /[?#]/.test(raw))
     throw new Error("QUOTE_DESK_PAGE_URL must not have a user, password, query or fragment")
-  return url.href.replace(/\/+$/, "")
+  return `${url.origin}${url.pathname}`.replace(/\/+$/, "")
 }

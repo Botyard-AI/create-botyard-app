@@ -185,6 +185,24 @@ describe("notifications", () => {
     expect(t.log.some((l) => l.includes("saving notices failed: disk full"))).toBe(true)
   })
 
+  test("a save that failed is retried on the next pass, without sending again", async () => {
+    let down = true
+    const saved: (readonly Notice[])[] = []
+    const t = setup([], [], (n) => {
+      if (down) throw new Error("disk full")
+      saved.push(n)
+    })
+    toBusiness(t.desk)
+    await t.notifier.tick()
+    expect(saved).toEqual([])
+    down = false
+    await t.notifier.tick()
+    expect(saved.map((n) => n.map((x) => x.outcome))).toEqual([["sent"]])
+    await t.notifier.tick()
+    expect(saved).toHaveLength(1)
+    expect(t.calls).toBe(1)
+  })
+
   test("a resubmission is a new notice", async () => {
     const t = setup()
     const id = toBusiness(t.desk)
@@ -246,11 +264,15 @@ describe("notifications", () => {
 test("the page URL must be https", () => {
   expect(pageUrl(undefined)).toBeNull()
   expect(pageUrl("https://desk.example.org/")).toBe("https://desk.example.org")
+  expect(pageUrl("https://desk.example.org/desk/")).toBe("https://desk.example.org/desk")
+  expect(() => pageUrl("not a url token=x")).toThrow(/^QUOTE_DESK_PAGE_URL is not a URL$/)
   expect(() => pageUrl("http://desk.example.org")).toThrow("https")
   for (const bad of [
     "https://user:secret@desk.example.org",
     "https://desk.example.org/?token=x",
     "https://desk.example.org/#x",
+    "https://desk.example.org/desk?",
+    "https://desk.example.org/desk#",
   ])
     expect(() => pageUrl(bad)).toThrow("must not have")
 })

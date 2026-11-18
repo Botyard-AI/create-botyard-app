@@ -182,7 +182,7 @@ due and sends the ones it hasn't sent; they're kept in
 `data/notifications.json`. A resubmitted quote gets new notices. A failed send
 is tried again on the next pass, at most 3 times. A send whose outcome is
 unknown isn't repeated, because a missed notice is better than a duplicate. A
-save that fails is logged and doesn't resend anything; only a restart before
+save that fails is logged and retried every pass, without resending; only a restart before
 the next good save, or a crash between a send and its save, can send a notice
 twice. `QUOTE_DESK_PAGE_URL` goes into every notice, so it may not carry a
 user, password, query or fragment.
