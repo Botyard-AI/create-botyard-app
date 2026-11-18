@@ -55,6 +55,36 @@ Use **Re-run all jobs** on the failed run. It runs from the same commit, so
 finishes the tag and GitHub release. A published version is never overwritten.
 Fix anything else in a PR and release a new version.
 
+## Actions lockfile
+
+`.github/workflows/actions.lock` is GitHub's
+[workflow dependency lockfile](https://docs.github.com/en/actions/concepts/security/workflow-dependency-lockfiles).
+It records the exact commit, and the owning repository's numeric id, of every
+action the workflows run, including actions that a composite action calls
+(for example the `github/codeql-action` that `zizmor-action` uses). Every
+workflow is onboarded, so GitHub runs the locked commit even if a tag moves,
+and refuses to start a job whose actions are not in the lockfile. This matters
+most for `release.yml`, whose `publish` job holds the npm OIDC permission.
+
+- Workflows reference actions by exact release tag, such as
+  `actions/checkout@v7.0.1`. The lockfile, not the `uses:` line, holds the
+  commit.
+- After adding, removing or changing a `uses:`, run `gh actions-lock` from the
+  repository root (`gh extension install github/gh-actions-lock` once), review
+  the diff, and commit the workflow and lockfile together. Never edit the
+  lockfile by hand, and never delete it to clear an error: restore it from
+  `main` and run `gh actions-lock` again.
+- Dependabot's `github-actions` updates regenerate the matching lockfile entry
+  in the same PR. No extra configuration is needed.
+- The `actions-lock` check runs `gh actions-lock --verify`. It fails when the
+  lockfile is missing, does not match the workflows, or a locked commit no
+  longer verifies upstream: a moved release tag, rewritten history, or a
+  repository replaced under the same name. Investigate before accepting any
+  of these. Never run `--accept-moved` in automation.
+- The lockfile does not pin container images, tools that actions download (the
+  Node and pnpm versions are set explicitly in the workflows), or the zizmor
+  version that `zizmor-action` installs.
+
 ## npm settings
 
 Each of the four packages on npmjs.com has:
