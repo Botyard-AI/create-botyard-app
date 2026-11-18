@@ -35,7 +35,8 @@ npm run dev      # API + UI with hot reload on 127.0.0.1:8787
 npm run expose   # publish it as a Bot Page and print the URL
 ```
 
-Node 22 or newer. The scaffolder copies only the templates bundled in its npm
+Node 22.18 or newer: the app's server is TypeScript that Node runs directly.
+The scaffolder copies only the templates bundled in its npm
 package: it fetches nothing, installs nothing and runs none of your app's
 scripts. Outside a bot, `npm run dev:mock` serves the app against fixture data.
 
