@@ -5,7 +5,7 @@ import path from "node:path"
 import { inflateSync } from "node:zlib"
 import { PDFDocument } from "pdf-lib"
 import { describe, expect, test } from "vitest"
-import { printable, quoteSheet, renderPdf } from "../server/pdf.ts"
+import { pdfName, printable, quoteSheet, renderPdf } from "../server/pdf.ts"
 import { saveState } from "../server/quotes/store.ts"
 import type { QuoteInput } from "../shared/types.ts"
 import { asViewer, memoryDesk, startApp } from "./helpers.ts"
@@ -166,7 +166,17 @@ test("npm run pdf writes a quote's PDF from the data directory, for the bot", ()
     expect(() =>
       execFileSync(process.execPath, [script, "Q-1999-0001"], { env, stdio: "pipe" })
     ).toThrow(/No quote Q-1999-0001/)
+    expect(() =>
+      execFileSync(process.execPath, [script, "../../escape"], { env, stdio: "pipe" })
+    ).toThrow(/Usage: npm run pdf/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test("a PDF is named only for a canonical quote id", () => {
+  const { quote } = reviewed()
+  expect(pdfName(quote)).toBe(`${quote.id}-draft.pdf`)
+  for (const id of ["../../etc/passwd", 'Q-2026-0201"; x=1', "Q-2026-0201/..", ""])
+    expect(() => pdfName({ ...quote, id })).toThrow("not a quote id")
 })

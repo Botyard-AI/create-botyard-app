@@ -125,9 +125,14 @@ the host bot: "send me the PDF of <quote id>". The bot runs
 `npm run pdf -- <quote id>` in the app's directory and sends the printed file
 with `send_files`.
 
+The bot checks first that the person asking is the quote's owner or one of
+its approvers (the script prints the owner), and that the conversation holds
+no one else.
+
 **Expected:** the same PDF arrives in that conversation, without the draft
-mark. The app never sends it on its own: the bot sends it when asked. The HTTP
-route stays members-only.
+mark. The app never sends it on its own: the bot sends it when asked. Asked by
+anyone else, the bot points them to **PDF** in the app instead. The HTTP route
+stays members-only.
 
 ## 8. Mail to the bot (about 3 minutes)
 

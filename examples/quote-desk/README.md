@@ -233,6 +233,14 @@ example to the owner when the quote is approved. The script reads the app's
 own data directory, so the HTTP route stays members-only. The app doesn't
 send the PDF itself: the bot does, when someone asks it to.
 
+The script is an operator tool and trusts whoever runs it, so the bot decides
+who gets the file. It sends it only to the quote's owner or its approvers, and
+only when one of them asks in a signed-in conversation with the bot; the
+script prints the owner as a reminder. Anyone else downloads it in the app, as
+a member, or doesn't get it. The script accepts only quote ids like
+`Q-2026-0201`, and a stored id of any other shape is refused before it reaches
+a file name or a header.
+
 When the delivery option isn't available for the region, the PDF says delivery
 is to be confirmed and the total excludes it, rather than printing a free
 delivery.

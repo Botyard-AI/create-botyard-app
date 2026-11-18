@@ -6,6 +6,7 @@ import { requireMember } from "@botyard/botpage/node"
 import type { BotPage } from "@botyard/botpage"
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib"
 import { DOWNLOADS } from "../shared/api.ts"
+import { QUOTE_ID } from "../shared/parse.ts"
 import type { Crm, Erp, QuoteView } from "../shared/types.ts"
 import { HttpError, type Route } from "./http.ts"
 import type { QuoteDesk } from "./quotes/desk.ts"
@@ -173,8 +174,13 @@ export function quotePdf(desk: QuoteDesk, quote: QuoteView): Promise<Uint8Array>
   return renderPdf(`Quotation ${quote.id}`, quoteSheet(quote, desk.erp, desk.crm))
 }
 
-/** "Q-2026-0201.pdf", or "Q-2026-0201-draft.pdf" before approval. */
+/**
+ * "Q-2026-0201.pdf", or "Q-2026-0201-draft.pdf" before approval. Stored ids
+ * are only length-checked, and this name goes into a header and a file path,
+ * so anything but a canonical id is refused.
+ */
 export function pdfName(quote: QuoteView): string {
+  if (!QUOTE_ID.test(quote.id)) throw new HttpError(422, "not a quote id")
   return `${quote.id}${FINAL.includes(quote.status) ? "" : "-draft"}.pdf`
 }
 
