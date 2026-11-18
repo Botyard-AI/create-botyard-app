@@ -1,4 +1,4 @@
-import { FileSignature, Mail, Pencil } from "lucide-react"
+import { FileDown, FileSignature, Mail, Pencil } from "lucide-react"
 import { useState } from "react"
 import type { HandoffView, QuoteView, SettingsView } from "../../../shared/types.ts"
 import { ApprovalsPanel } from "@/components/approvals-panel"
@@ -8,7 +8,7 @@ import { PricingSummary } from "@/components/pricing-summary"
 import { QuoteHistory } from "@/components/quote-history"
 import { StatusBadge } from "@/components/status-badge"
 import { Notice, Panel } from "@/components/ui/bits"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { eur } from "@/lib/format"
 import { act, type QuoteAction } from "@/lib/quotes-api"
 
@@ -56,6 +56,13 @@ export function QuoteDetail({ quote, settings, handoff, now, onChanged, onEdit }
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <a
+            className={buttonVariants({ variant: "outline" })}
+            href={`/api/quotes/${quote.id}/pdf`}
+            download
+          >
+            <FileDown /> PDF
+          </a>
           {quote.status === "draft" ? (
             <Button
               variant="outline"

@@ -220,6 +220,19 @@ nobody is asked about it. Very high volume can lag.
 **It needs** `QUOTE_DESK_NOTIFY_THREAD` (new conversations start from it, as
 for notices), and the tools `search_inbound_emails`, `get_inbound_email` and
 `notify_human`. `QUOTE_DESK_MAIL=off` turns it off.
+## The quotation PDF
+
+**PDF** on a quote downloads `GET /api/quotes/:id/pdf`, for org members. The
+server builds it with [`pdf-lib`](https://pdf-lib.js.org), in plain
+JavaScript with no browser or system fonts. The bot can fetch it the same way
+and send it to the owner with `send_files`.
+
+It's the customer's document, so `quoteSheet` (`server/pdf.ts`) puts in only
+what the customer may see: the lines, prices, discount, delivery, terms and
+totals. Never cost, margin, flags, credit or approval notes; a test reads the
+PDF's text to check. A quote that isn't approved yet is marked "DRAFT, not an
+offer". The built-in Helvetica font draws Latin-1 only, so other characters
+print as `?`.
 
 ## Security notes
 
