@@ -17,17 +17,7 @@
 // What was handled is kept in data/mail.json.
 import type { BotPage } from "@botyard/botpage"
 import { OutcomeUnknownError, TransportError, type ToolCaller } from "@botyard/runtime"
-import {
-  ParseError,
-  isRecord,
-  items,
-  num,
-  oneOf,
-  record,
-  str,
-  strOrNull,
-  type Rec,
-} from "../shared/narrow.ts"
+import { isRecord, items, num, oneOf, record, str, strOrNull, type Rec } from "../shared/narrow.ts"
 
 const LOOKBACK_MS = 24 * 3600_000
 const PAGE = 50
@@ -63,17 +53,17 @@ export function parseMailState(value: unknown) {
     /** Every email received up to here is handled; the next pass starts here. */
     cursor: strOrNull(r, "cursor", "mail", 40),
     handled: items(r, "handled", "mail", MAX_KEPT, handled),
-    /** Member user id to when they were last asked, ISO. */
+    /** Member user id to their last notice: when it went, and the mail it covers from. */
     asked: askedTimes(record(r["asked"], "mail.asked")),
   }
 }
 
-function askedTimes(r: Rec): Record<string, string> {
-  const out: Record<string, string> = {}
-  for (const [userId, at] of Object.entries(r)) {
-    if (typeof at !== "string" || at.length > 40)
-      throw new ParseError(`mail.asked.${userId}: not a time`)
-    out[userId.slice(0, 80)] = at
+function askedTimes(r: Rec): Record<string, { at: string; since: string }> {
+  const out: Record<string, { at: string; since: string }> = {}
+  for (const [userId, v] of Object.entries(r)) {
+    const p = `mail.asked.${userId.slice(0, 80)}`
+    const a = record(v, p)
+    out[userId.slice(0, 80)] = { at: str(a, "at", p, 40), since: str(a, "since", p, 40) }
   }
   return out
 }
@@ -172,7 +162,8 @@ export class MailInbox {
     // The newest time up to which everything listed is handled.
     let handledTo: string | null = null
     let gap = false
-    for await (const m of this.#oldestFirst()) {
+    const walk = { totals: new Set<number>() }
+    for await (const m of this.#oldestFirst(walk)) {
       if (done.has(m.id)) {
         if (!gap && m.received_at !== null) handledTo = m.received_at
         continue
@@ -182,7 +173,9 @@ export class MailInbox {
       todo.push(m.id)
       if (todo.length >= MAX_PER_PASS) break
     }
-    if (handledTo !== null && handledTo > (this.#state.cursor ?? ""))
+    // Mail arriving mid-walk shifts the pages, so a row can be missed: the
+    // cursor only moves when every page read saw the same total.
+    if (walk.totals.size === 1 && handledTo !== null && handledTo > (this.#state.cursor ?? ""))
       this.#change({ ...this.#state, cursor: handledTo })
     for (const id of todo) await this.#try(id)
   }
@@ -192,7 +185,9 @@ export class MailInbox {
    * late), oldest first. The platform lists newest first, so the pages are
    * read from the last one back.
    */
-  async *#oldestFirst(): AsyncGenerator<{ id: string; received_at: string | null }> {
+  async *#oldestFirst(walk: {
+    totals: Set<number>
+  }): AsyncGenerator<{ id: string; received_at: string | null }> {
     const floors = [Date.parse(this.#state.since), this.#now().getTime() - LOOKBACK_MS]
     if (this.#state.cursor !== null) floors.push(Date.parse(this.#state.cursor) - OVERLAP_MS)
     const since = new Date(Math.max(...floors)).toISOString()
@@ -202,6 +197,7 @@ export class MailInbox {
         await this.#o.tools.call(at, { since, status: "stored", limit: PAGE, offset }),
         at
       )
+      walk.totals.add(num(r, "total", at))
       return { list: items(r, "items", at, PAGE, listed), total: num(r, "total", at) }
     }
     const first = await page(0)
@@ -249,9 +245,12 @@ export class MailInbox {
       this.#done(id, "skipped", "the sender is not an org member")
       return
     }
+    const receivedAt = mail.received_at ?? this.#now().toISOString()
     const last = this.#state.asked[member.userId]
-    if (last !== undefined && this.#now().getTime() - Date.parse(last) < NOTICE_EVERY_MS) {
-      this.#done(id, "batched", member.userId) // that notice covers mail from then on
+    if (last !== undefined && this.#now().getTime() - Date.parse(last.at) < NOTICE_EVERY_MS) {
+      // That notice has the bot read mail received since last.since. Mail
+      // stored late with an earlier time isn't covered: it waits for the next notice.
+      if (receivedAt >= last.since) this.#done(id, "batched", member.userId)
       return
     }
     try {
@@ -259,7 +258,7 @@ export class MailInbox {
         user_ids: [member.userId],
         subject: "An email in your name reached the Quote desk",
         // The member's own address from the directory, not the From header.
-        body: noticeBody(memberEmail, mail.received_at ?? this.#now().toISOString()),
+        body: noticeBody(memberEmail, receivedAt),
         level: "info",
         target: {
           kind: "new",
@@ -270,18 +269,18 @@ export class MailInbox {
     } catch (err) {
       if (!(err instanceof OutcomeUnknownError)) throw err
       // Asking again could ask twice; the notice may well be there already.
-      this.#asked(member.userId)
+      this.#asked(member.userId, receivedAt)
       this.#done(id, "unknown", member.userId)
       this.#log(`${id}: the notice may or may not have gone out; not sending it again`)
       return
     }
-    this.#asked(member.userId)
+    this.#asked(member.userId, receivedAt)
     this.#done(id, "asked", member.userId)
     this.#log(`${id}: asked its sender to confirm it`)
   }
 
-  #asked(userId: string): void {
-    const asked = { ...this.#state.asked, [userId]: this.#now().toISOString() }
+  #asked(userId: string, since: string): void {
+    const asked = { ...this.#state.asked, [userId]: { at: this.#now().toISOString(), since } }
     this.#change({ ...this.#state, asked })
   }
 
