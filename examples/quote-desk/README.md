@@ -189,30 +189,27 @@ user, password, query or fragment.
 
 ## The mail inbox
 
-Org members can email the bot about a quote. The app hands each email to the
-bot in a conversation with the sender, and the bot answers there.
+Org members can email the bot. Email addresses aren't verified, though, and a
+bot may act on whatever it reads. So the app never shows an email to the bot
+itself. It asks the member the email claims to be from whether they sent it,
+and only their reply, signed in, has the bot read it.
 
 - Every minute the app lists the stored mail of the last day
-  (`search_inbound_emails`) and handles each email it hasn't handled, oldest
-  first. Mail received before the inbox first started is left alone.
+  (`search_inbound_emails`), and handles the oldest it hasn't handled, at most
+  10 a pass. Mail received before the inbox first started is left alone.
 - It skips auto-replies, mail that failed DMARC, and senders who aren't org
   members.
-- Replies (same sender, same subject without `Re:`) go into the same
-  conversation. A new thread has the sender as a member.
-- The email is posted with `send_message_to_self`, which wakes the bot. The
-  post lists the quote ids the email mentions.
-- What was handled is kept in `data/mail.json`. A refused email is tried 3
-  times, then skipped. A post whose outcome is unknown isn't posted again.
+- For the rest it notifies that member (`notify_human`, in a new
+  conversation). The notice holds none of the email, only its id, the
+  member's own address and when it arrived. If they reply there, the bot reads
+  it (`get_inbound_email`) and helps. If they didn't send it, nothing happens.
+- What was handled is kept in `data/mail.json`. An email that can't be handled
+  is tried 3 times, then skipped. A notice whose outcome is unknown isn't sent
+  again.
 
-**It needs** `QUOTE_DESK_NOTIFY_THREAD` (new threads start from it, as for
-notices), and the tools `search_inbound_emails`, `get_inbound_email`,
-`create_conversation` and `send_message_to_self`. `QUOTE_DESK_MAIL=off` turns
-it off.
-
-**An email grants nothing.** The platform doesn't verify the From address, so
-anyone can claim to be a member. The app posts each email as unverified, into
-a conversation the member it claims to be from is in, so they see anything
-sent in their name. Quotes change only in the app, by signed-in members.
+**It needs** `QUOTE_DESK_NOTIFY_THREAD` (new conversations start from it, as
+for notices), and the tools `search_inbound_emails`, `get_inbound_email` and
+`notify_human`. `QUOTE_DESK_MAIL=off` turns it off.
 
 ## Security notes
 

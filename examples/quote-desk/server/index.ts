@@ -129,8 +129,9 @@ if (notifyThread === "") {
     save: (notices) => writeJson(noticesFile, { notices }),
   }).start()
 
-  // The mail inbox: email from org members, handed to this bot in a thread
-  // with the sender (data/mail.json). QUOTE_DESK_MAIL=off turns it off.
+  // The mail inbox: an email from an org member is never shown to the bot by
+  // the app; the member is asked to confirm it (data/mail.json).
+  // QUOTE_DESK_MAIL=off turns it off.
   if (process.env["QUOTE_DESK_MAIL"] !== "off") {
     const mailFile = path.join(dataDir, "mail.json")
     new MailInbox({
