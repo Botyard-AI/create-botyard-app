@@ -7,14 +7,21 @@ Do not edit them by hand.
 | --- | --- |
 | `botyard-lockup-on-dark.svg` | The lockup for dark backgrounds (GitHub dark theme). |
 | `botyard-lockup-on-light.svg` | The lockup for light backgrounds (GitHub light theme). |
-| `botyard-lockup-tile.svg` | The on-dark lockup on a navy tile, for places that show one image on any background, such as npm, which strips `<picture>`. |
+| `botyard-app-icon-navy.svg` | The navy app icon with rounded corners, for places that show one image on any background, such as npm, which strips `<picture>`. |
 
-The two lockups are byte-for-byte copies of `brand/logos/lockup/` in the Botyard
-monorepo at `be253c1ebfcb8cce84f5c83e4e11ae31e10816aa`, which generates them
-from one geometry module. The tile wraps the unchanged on-dark lockup with the
-brand's 0.5M clear space. To update, copy the new lockups and rebuild the tile
-the same way; the brand rules (sizes, clear space, colours) live in the
-monorepo's `brand/logos/README.md`.
+Each file is a byte-for-byte copy from the Botyard monorepo at
+`be253c1ebfcb8cce84f5c83e4e11ae31e10816aa`, which generates them from one
+geometry module:
+
+| File here | Monorepo source |
+| --- | --- |
+| `botyard-lockup-on-dark.svg` | `brand/logos/lockup/botyard-lockup-on-dark.svg` |
+| `botyard-lockup-on-light.svg` | `brand/logos/lockup/botyard-lockup-on-light.svg` |
+| `botyard-app-icon-navy.svg` | `brand/logos/app-icon/botyard-app-icon-navy-full-rounded.svg` |
+
+To update, copy the new files from the monorepo. Do not compose new variants
+here; the brand rules (sizes, clear space, colours) live in the monorepo's
+`brand/logos/README.md`.
 
 npm READMEs reference these files by absolute URL pinned to a commit, so
 changing a file here never changes an already published README.

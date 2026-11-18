@@ -24,21 +24,36 @@
 
 ## Quick start
 
-Inside a Botyard bot (or anywhere, for local development):
+Create the app and install exactly what its lockfile pins:
 
 ```sh
 npx create-botyard-app my-app
 cd my-app
-npm install
+npm ci           # inside a bot: npm ci --include=dev
 npm test
-npm run dev      # API + UI with hot reload on 127.0.0.1:8787
-npm run expose   # publish it as a Bot Page and print the URL
 ```
 
-Node 22.18 or newer: the app's server is TypeScript that Node runs directly.
-The scaffolder copies only the templates bundled in its npm
-package: it fetches nothing, installs nothing and runs none of your app's
-scripts. Outside a bot, `npm run dev:mock` serves the app against fixture data.
+Bot runtimes set `NODE_ENV=production`, which makes npm skip the test and
+build tools; `--include=dev` installs them anyway.
+
+**On your machine**, run it against fixture data, signed in as a sample user:
+
+```sh
+npm run dev:mock
+```
+
+**Inside a Botyard bot**, start the app, then publish it from a second shell
+in the app directory while it runs:
+
+```sh
+npm run dev      # API + UI with hot reload on 127.0.0.1:8787
+npm run expose   # in a second shell: publish it as a Bot Page and print the URL
+```
+
+The app runs on Node 22 (22.18 or later) or Node 24: its server is TypeScript
+that Node runs directly. The scaffolder itself downloads and installs nothing:
+it copies only the templates bundled in its npm package and runs none of your
+app's scripts.
 
 You get a Node API and a React UI on one port. The API knows who is viewing
 the page and whether they are a member of your org, and it can call the
@@ -51,7 +66,7 @@ platform tools assigned to your bot.
 | [`create-botyard-app`](./packages/create-botyard-app#readme) | [![npm](https://img.shields.io/npm/v/create-botyard-app?label=)](https://www.npmjs.com/package/create-botyard-app) | The `npx` scaffolder. |
 | [`@botyard/runtime`](./packages/runtime#readme) | [![npm](https://img.shields.io/npm/v/%40botyard%2Fruntime?label=)](https://www.npmjs.com/package/@botyard/runtime) | Call Botyard platform tools from your app. No credentials in your code, typed errors, never retries. |
 | [`@botyard/botpage`](./packages/botpage#readme) | [![npm](https://img.shields.io/npm/v/%40botyard%2Fbotpage?label=)](https://www.npmjs.com/package/@botyard/botpage) | Who is viewing your Bot Page, members-only guards, and links back into Botyard. Adapters for Node `http`, Hono and Next.js. |
-| [`@botyard/ui`](./packages/ui#readme) | — | React pieces for Bot Pages. **Not released yet**: the name is reserved. |
+| [`@botyard/ui`](./packages/ui#readme) | [placeholder](https://www.npmjs.com/package/@botyard/ui) | React pieces for Bot Pages. **Placeholder only; no usable release yet.** |
 
 The template the scaffolder ships is in [`templates/full-app`](./templates/full-app#readme).
 [`examples/`](./examples#readme) holds apps built on the packages as published on npm.
@@ -72,7 +87,7 @@ welcome; pull requests from outside the team are not accepted. See
 
 ## Security
 
-Every package is published from CI with
+Releases built by this repository's release workflow include
 [npm provenance](https://docs.npmjs.com/generating-provenance-statements), so
 you can check that a release was built from this repository. Report
 vulnerabilities privately; see [SECURITY.md](./SECURITY.md).
