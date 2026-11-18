@@ -143,15 +143,14 @@ export class Notifier {
       const round = reviewRound(q)
       const ready =
         h !== undefined && h.round === round && (h.kind === "answered" || h.kind === "manual")
-      if (!ready || q.approvals.finance !== null) return null
+      // Finance is needed once the reviewer step is decided or ready to be
+      // decided, whichever card was signed first. One notice per round.
+      if (!ready && q.approvals.bot_review === null) return null
       return {
-        key: `${q.id}:finance:${round}`,
+        key: `${q.id}:finance:${round ?? ""}`,
         userIds: await this.#members(approvers.finance),
         subject: `${q.id} needs your finance sign-off`,
-        action:
-          h.kind === "answered"
-            ? `confirm or overrule the reviewer bot's recommendation (${h.decision}), then sign off as finance`
-            : "record the reviewer step and sign off as finance (no recommendation is coming)",
+        action: financeAction(h?.kind === "answered" ? h.decision : null, q),
       }
     }
     if (q.status === "business_review") {
@@ -241,13 +240,30 @@ export class Notifier {
     ].join("\n")
   }
 
+  /**
+   * Remembers a notice, then saves. Memory comes first: a save that fails
+   * must not send the notice again. It is logged; only a restart before the
+   * next good save can repeat the notice.
+   */
   #record(key: string, outcome: Notice["outcome"]): void {
     const n: Notice = { key, outcome, at: this.#now().toISOString() }
-    const next = new Map([...this.#done, [key, n]])
-    this.#o.save?.([...next.values()])
-    this.#done = next
+    this.#done = new Map([...this.#done, [key, n]])
     this.#attempts.delete(key)
+    try {
+      this.#o.save?.([...this.#done.values()])
+    } catch (err) {
+      this.#log(`saving notices failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
+}
+
+/** What finance is asked to do: both cards are theirs (the reviewer bot only advises). */
+function financeAction(recommends: string | null, q: QuoteView): string {
+  if (q.approvals.bot_review !== null) return "sign off as finance (the reviewer step is recorded)"
+  if (q.approvals.finance !== null) return "record the reviewer step (finance has signed off)"
+  if (recommends !== null)
+    return `confirm or overrule the reviewer bot's recommendation (${recommends}), then sign off as finance`
+  return "record the reviewer step and sign off as finance (no recommendation is coming)"
 }
 
 /** Which of the matching events is the latest, and when: "2@2026-11-10T09:00:00Z". */
@@ -261,5 +277,8 @@ export function pageUrl(raw: string | undefined): string | null {
   if (raw === undefined || raw === "") return null
   const url = new URL(raw)
   if (url.protocol !== "https:") throw new Error("QUOTE_DESK_PAGE_URL must be an https URL")
+  // It goes into every notice: no credentials, and nothing after the path.
+  if (url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "")
+    throw new Error("QUOTE_DESK_PAGE_URL must not have a user, password, query or fragment")
   return url.href.replace(/\/+$/, "")
 }

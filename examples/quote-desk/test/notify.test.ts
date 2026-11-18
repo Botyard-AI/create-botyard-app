@@ -27,11 +27,17 @@ const INPUT: QuoteInput = {
 type Sent = { user_ids: unknown; subject: unknown; body: unknown; target: unknown }
 
 /** A notifier on the seed desk; Grace approves for finance, Ada for business. */
-function setup(fail: Error[] = [], notices: readonly Notice[] = []) {
+function setup(
+  fail: Error[] = [],
+  notices: readonly Notice[] = [],
+  save?: (notices: readonly Notice[]) => void
+) {
   const sent: Sent[] = []
+  const counter = { calls: 0 }
   const saved: (readonly Notice[])[] = []
   const tools = mockRuntime({
     notify_human: (args) => {
+      counter.calls++
       const err = fail.shift()
       if (err !== undefined) throw err
       sent.push({
@@ -58,10 +64,21 @@ function setup(fail: Error[] = [], notices: readonly Notice[] = []) {
     origin: ORIGIN,
     pageUrl: "https://desk.example.org",
     notices,
-    save: (n) => saved.push(n),
+    save: save ?? ((n) => saved.push(n)),
     log: (line) => log.push(line),
   })
-  return { desk, settings, handoffs, notifier, sent, saved, log }
+  return {
+    desk,
+    settings,
+    handoffs,
+    notifier,
+    sent,
+    saved,
+    log,
+    get calls() {
+      return counter.calls
+    },
+  }
 }
 
 /** Ada's quote, through finance into business review. */
@@ -83,10 +100,11 @@ describe("notifications", () => {
       {
         user_ids: ["user-ada"],
         subject: `${id} needs your business sign-off`,
-        body: expect.stringContaining(`https://desk.example.org/quotes/${id}`) as unknown,
+        body: t.sent[0]?.body,
         target: { kind: "new", title: `Quote desk · ${id}`, origin_conversation_id: ORIGIN },
       },
     ])
+    expect(String(t.sent[0]?.body)).toContain(`Open it: https://desk.example.org/quotes/${id}`)
     expect(t.saved.at(-1)?.map((n) => n.outcome)).toEqual(["sent"])
   })
 
@@ -120,6 +138,51 @@ describe("notifications", () => {
     expect(t.sent.map((s) => [s.user_ids, s.subject])).toEqual([
       [["user-ada"], `${id}: changes requested`],
     ])
+  })
+
+  test("finance signed first is still told when the reviewer answers", async () => {
+    const t = setup()
+    const { id } = t.desk.create(INPUT, ADA, ADA.name)
+    t.desk.submit(id, ADA.name)
+    t.desk.decide(id, "finance", "approve", "", "Grace")
+    await t.notifier.tick()
+    expect(t.sent).toEqual([])
+    t.handoffs.set({
+      kind: "manual",
+      quote_id: id,
+      round: reviewRound(t.desk.get(id)) ?? "",
+      since: "2026-11-10T09:00:00Z",
+      reason: "no board",
+      instruction: null,
+    })
+    await t.notifier.tick()
+    expect(t.sent.map((s) => s.subject)).toEqual([`${id} needs your finance sign-off`])
+    expect(String(t.sent[0]?.body)).toContain("record the reviewer step (finance has signed off)")
+  })
+
+  test("a reviewer step recorded before any answer tells finance once", async () => {
+    const t = setup()
+    const { id } = t.desk.create(INPUT, ADA, ADA.name)
+    t.desk.submit(id, ADA.name)
+    t.desk.decide(id, "bot_review", "approve", "", "Grace")
+    await t.notifier.tick()
+    await t.notifier.tick()
+    expect(t.sent.map((s) => s.subject)).toEqual([`${id} needs your finance sign-off`])
+    expect(String(t.sent[0]?.body)).toContain("sign off as finance (the reviewer step is recorded)")
+  })
+
+  test.each([
+    ["a send that worked", []],
+    ["a send whose outcome is unknown", [new OutcomeUnknownError("timed out")]],
+  ])("a failed save does not resend %s", async (_name, fail) => {
+    const t = setup([...fail], [], () => {
+      throw new Error("disk full")
+    })
+    toBusiness(t.desk)
+    await t.notifier.tick()
+    await t.notifier.tick()
+    expect(t.calls).toBe(1)
+    expect(t.log.some((l) => l.includes("saving notices failed: disk full"))).toBe(true)
   })
 
   test("a resubmission is a new notice", async () => {
@@ -184,4 +247,10 @@ test("the page URL must be https", () => {
   expect(pageUrl(undefined)).toBeNull()
   expect(pageUrl("https://desk.example.org/")).toBe("https://desk.example.org")
   expect(() => pageUrl("http://desk.example.org")).toThrow("https")
+  for (const bad of [
+    "https://user:secret@desk.example.org",
+    "https://desk.example.org/?token=x",
+    "https://desk.example.org/#x",
+  ])
+    expect(() => pageUrl(bad)).toThrow("must not have")
 })
