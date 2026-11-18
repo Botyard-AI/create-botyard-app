@@ -221,6 +221,37 @@ nobody is asked about it. Very high volume can lag.
 for notices), and the tools `search_inbound_emails`, `get_inbound_email` and
 `notify_human`. `QUOTE_DESK_MAIL=off` turns it off.
 
+## The quotation PDF
+
+**PDF** on a quote downloads `GET /api/quotes/:id/pdf`, for org members. The
+server builds it with [`pdf-lib`](https://pdf-lib.js.org), in plain
+JavaScript with no browser or system fonts.
+
+The bot gets the same file with `npm run pdf -- <quote id>`, which writes it
+to `data/pdf/` and prints the path, then sends it with `send_files`, for
+example to the owner when the quote is approved. The script reads the app's
+own data directory, so the HTTP route stays members-only. The app doesn't
+send the PDF itself: the bot does, when someone asks it to.
+
+The script is an operator tool and trusts whoever runs it, so the bot decides
+who gets the file. It sends it only to the quote's owner or its approvers, and
+only when one of them asks in a signed-in conversation with the bot; the
+script prints the owner as a reminder. Anyone else downloads it in the app, as
+a member, or doesn't get it. The script accepts only quote ids like
+`Q-2026-0201`, and a stored id of any other shape is refused before it reaches
+a file name or a header.
+
+When the delivery option isn't available for the region, the PDF says delivery
+is to be confirmed and the total excludes it, rather than printing a free
+delivery.
+
+It's the customer's document, so `quoteSheet` (`server/pdf.ts`) puts in only
+what the customer may see: the lines, prices, discount, delivery, terms and
+totals. Never cost, margin, flags, credit or approval notes; a test reads the
+PDF's text to check. A quote that isn't approved yet is marked "DRAFT, not an
+offer". The built-in Helvetica font draws Latin-1 only, so other characters
+print as `?`.
+
 ## Security notes
 
 - **Dependencies.** `package-lock.json` pins every package, including

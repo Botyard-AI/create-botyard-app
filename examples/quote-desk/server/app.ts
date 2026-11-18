@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http"
 import type { BotPage } from "@botyard/botpage"
 import { withViewer } from "@botyard/botpage/node"
 import { approvalRoutes } from "./approvals.ts"
+import { pdfRoute } from "./pdf.ts"
 import type { ReviewRelay } from "./review/relay.ts"
 import { reviewRoutes, type ReviewTools } from "./review/routes.ts"
 import { match, sendError, sendJson, type Route } from "./http.ts"
@@ -102,6 +103,8 @@ export function createApp({
       }),
     },
     ...tableRoutes({ botpage, tools, desk, settings, relay, fileHosts }),
+    // The quotation PDF: a file, so it is served outside the JSON API table.
+    pdfRoute(botpage, desk),
   ]
 
   return async (req, res) => {

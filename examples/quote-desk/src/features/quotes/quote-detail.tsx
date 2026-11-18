@@ -1,5 +1,6 @@
-import { FileSignature, Mail, Pencil } from "lucide-react"
+import { FileDown, FileSignature, Mail, Pencil } from "lucide-react"
 import { useState } from "react"
+import { DOWNLOADS } from "../../../shared/api.ts"
 import type { HandoffView, QuoteView, SettingsView } from "../../../shared/types.ts"
 import { ApprovalsPanel } from "@/components/approvals-panel"
 import { CommentBox } from "@/components/comment-box"
@@ -8,9 +9,9 @@ import { PricingSummary } from "@/components/pricing-summary"
 import { QuoteHistory } from "@/components/quote-history"
 import { StatusBadge } from "@/components/status-badge"
 import { Notice, Panel } from "@/components/ui/bits"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { eur } from "@/lib/format"
-import { act, type QuoteAction } from "@/lib/quotes-api"
+import { act, downloadUrl, type QuoteAction } from "@/lib/quotes-api"
 
 const tone = { muted: "muted", info: "muted", warning: "warn", success: "ok" } as const
 
@@ -56,6 +57,13 @@ export function QuoteDetail({ quote, settings, handoff, now, onChanged, onEdit }
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <a
+            className={buttonVariants({ variant: "outline" })}
+            href={downloadUrl(DOWNLOADS.quotePdf, { id: quote.id })}
+            download
+          >
+            <FileDown /> PDF
+          </a>
           {quote.status === "draft" ? (
             <Button
               variant="outline"

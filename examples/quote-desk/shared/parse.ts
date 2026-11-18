@@ -484,6 +484,9 @@ function slugOrNull(r: Rec, key: string, at: string, what: string): string | nul
 }
 
 /** A conversation id: a UUID. */
+/** A quote id as the desk makes them: "Q-2026-0201". */
+export const QUOTE_ID = /^Q-\d{4}-\d{4,6}$/
+
 export const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export function parseSettings(value: unknown, at = "settings") {

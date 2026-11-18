@@ -120,6 +120,14 @@ export const API = {
   createReviewBoard: action("/api/review/board", parseCreatedBoard),
 } as const satisfies Record<string, Endpoint>
 
+/**
+ * Endpoints that answer with a file, not JSON: GET, members only. The server
+ * serves them and the UI links to them (fillPath), both from this table.
+ */
+export const DOWNLOADS = {
+  quotePdf: "/api/quotes/:id/pdf",
+} as const
+
 // ---------- path parameters, typed from the path ----------
 
 type Segments<P extends string> = P extends `${infer Head}/${infer Rest}`
