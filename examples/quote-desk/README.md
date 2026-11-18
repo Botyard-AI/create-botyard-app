@@ -187,6 +187,40 @@ the next good save, or a crash between a send and its save, can send a notice
 twice. `QUOTE_DESK_PAGE_URL` goes into every notice, so it may not carry a
 user, password, query or fragment.
 
+## The mail inbox
+
+Org members can email the bot. Email addresses aren't verified, though, and a
+bot may act on whatever it reads. So the app never shows an email to the bot
+itself. It asks the member the email claims to be from whether they sent it,
+and only their reply, signed in, has the bot read it.
+
+- Every minute the app walks the stored mail (`search_inbound_emails`)
+  oldest first, from where it got to, and handles up to 10 emails it hasn't
+  handled. Mail received before the inbox first started, or more than a day
+  ago, is left alone.
+- It skips auto-replies, mail that failed DMARC, and senders who aren't org
+  members.
+- For the rest it notifies that member (`notify_human`, in a new
+  conversation), at most once an hour. More mail from them in that hour is
+  covered by the same notice. The notice holds none of the email, only the
+  member's own address and when the mail started. If they reply there, the
+  bot reads their mail from then on and helps. If they didn't send it,
+  nothing happens.
+- What was handled is kept in `data/mail.json`. An email that can't be handled
+  is tried 3 times, then skipped. A notice whose outcome is unknown isn't sent
+  again.
+
+**Limits.** This is a best-effort, low-volume poller for an example.
+Production use needs a push or event source for inbound mail, which the
+platform doesn't offer yet (platform feedback filed). Mail is announced only
+if the platform stores it within 10 minutes of its place in the order. Mail
+stored later than that stays in the bot's mailbox but is never announced, so
+nobody is asked about it. Very high volume can lag.
+
+**It needs** `QUOTE_DESK_NOTIFY_THREAD` (new conversations start from it, as
+for notices), and the tools `search_inbound_emails`, `get_inbound_email` and
+`notify_human`. `QUOTE_DESK_MAIL=off` turns it off.
+
 ## Security notes
 
 - **Dependencies.** `package-lock.json` pins every package, including

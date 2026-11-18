@@ -25,6 +25,7 @@ import {
 } from "./quotes/store.ts"
 import { HandoffStore, parseHandoffs } from "./review/handoffs.ts"
 import { ReviewRelay } from "./review/relay.ts"
+import { MailInbox, parseMailState } from "./mail.ts"
 import { Notifier, pageUrl, parseNotices } from "./notify.ts"
 import { CONVERSATION_ID } from "../shared/parse.ts"
 import { fileHosts as parseFileHosts } from "./review/verdict.ts"
@@ -104,9 +105,9 @@ const fileHosts = parseFileHosts(process.env["QUOTE_DESK_FILE_HOSTS"])
 const relay = new ReviewRelay({ desk, settings, handoffs, tools: runtime, fileHosts })
 relay.start()
 
-// Notices to approvers and owners: data/notifications.json. They need a
-// conversation of this bot's to start their threads from
-// (QUOTE_DESK_NOTIFY_THREAD); without it, nobody is notified.
+// Notices to approvers and owners (data/notifications.json), and the mail
+// inbox. Both start their threads from a conversation of this bot's
+// (QUOTE_DESK_NOTIFY_THREAD); without it, neither runs.
 // QUOTE_DESK_PAGE_URL, the published page, adds a link to the quote.
 const notifyThread = process.env["QUOTE_DESK_NOTIFY_THREAD"] ?? ""
 if (notifyThread === "") {
@@ -127,6 +128,20 @@ if (notifyThread === "") {
     notices: readJson(noticesFile, parseNotices),
     save: (notices) => writeJson(noticesFile, { notices }),
   }).start()
+
+  // The mail inbox: an email from an org member is never shown to the bot by
+  // the app; the member is asked to confirm it (data/mail.json).
+  // QUOTE_DESK_MAIL=off turns it off.
+  if (process.env["QUOTE_DESK_MAIL"] !== "off") {
+    const mailFile = path.join(dataDir, "mail.json")
+    new MailInbox({
+      tools: runtime,
+      botpage,
+      origin: notifyThread,
+      state: readJson(mailFile, parseMailState),
+      save: (state) => writeJson(mailFile, state),
+    }).start()
+  }
 }
 
 const server = createServer()
