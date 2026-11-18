@@ -1,35 +1,80 @@
-# create-botyard-app
+<p align="center">
+  <a href="https://botyard.io">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/brand/botyard-lockup-on-dark.svg">
+      <img src="assets/brand/botyard-lockup-on-light.svg" alt="Botyard" width="241">
+    </picture>
+  </a>
+</p>
 
-Scaffold apps, Bot Pages and MCP servers for [Botyard](https://botyard.io) AI agents.
+<h1 align="center">create-botyard-app</h1>
+
+<p align="center">
+  Build web apps that run inside your <a href="https://botyard.io">Botyard</a> bot
+  and are served to your org as <a href="https://botyard.io/features/bot-pages">Bot Pages</a>,
+  behind Botyard sign-in.
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/create-botyard-app"><img src="https://img.shields.io/npm/v/create-botyard-app?label=create-botyard-app&color=d4622b" alt="npm version"></a>
+  <a href="https://github.com/Botyard-AI/create-botyard-app/actions/workflows/ci.yml"><img src="https://github.com/Botyard-AI/create-botyard-app/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/Botyard-AI/create-botyard-app"><img src="https://api.scorecard.dev/projects/github.com/Botyard-AI/create-botyard-app/badge" alt="OpenSSF Scorecard"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/github/license/Botyard-AI/create-botyard-app?color=4a5c6a" alt="License: Apache-2.0"></a>
+</p>
+
+## Quick start
+
+Inside a Botyard bot (or anywhere, for local development):
 
 ```sh
 npx create-botyard-app my-app
+cd my-app
+npm install
+npm test
+npm run dev      # API + UI with hot reload on 127.0.0.1:8787
+npm run expose   # publish it as a Bot Page and print the URL
 ```
 
-> **Status: pre-release.** Nothing is published to npm yet. This repository is
-> being bootstrapped; the CLI, templates and libraries land in follow-up PRs.
+Node 22 or newer. The scaffolder copies only the templates bundled in its npm
+package: it fetches nothing, installs nothing and runs none of your app's
+scripts. Outside a bot, `npm run dev:mock` serves the app against fixture data.
 
-## What it will contain
+You get a Node API and a React UI on one port. The API knows who is viewing
+the page and whether they are a member of your org, and it can call the
+platform tools assigned to your bot.
 
-| Path | Package | Purpose |
+## Packages
+
+| Package | Version | What it is for |
 | --- | --- | --- |
-| `packages/create-botyard-app` | `create-botyard-app` | The `npx` scaffolder |
-| `packages/runtime` | `@botyard/runtime` | Call Botyard tools from an app (botyardd on native bots, the MCP endpoint on OpenClaw bots, a mock in tests) |
-| `packages/botpage` | `@botyard/botpage` | The signed-in viewer of a Bot Page, org membership checks, deeplinks |
-| `packages/ui` | `@botyard/ui` | Optional React pieces for Bot Pages |
-| `templates/` | — | `static`, `next`, `full-app`, `mcp` |
+| [`create-botyard-app`](./packages/create-botyard-app#readme) | [![npm](https://img.shields.io/npm/v/create-botyard-app?label=)](https://www.npmjs.com/package/create-botyard-app) | The `npx` scaffolder. |
+| [`@botyard/runtime`](./packages/runtime#readme) | [![npm](https://img.shields.io/npm/v/%40botyard%2Fruntime?label=)](https://www.npmjs.com/package/@botyard/runtime) | Call Botyard platform tools from your app. No credentials in your code, typed errors, never retries. |
+| [`@botyard/botpage`](./packages/botpage#readme) | [![npm](https://img.shields.io/npm/v/%40botyard%2Fbotpage?label=)](https://www.npmjs.com/package/@botyard/botpage) | Who is viewing your Bot Page, members-only guards, and links back into Botyard. Adapters for Node `http`, Hono and Next.js. |
+| [`@botyard/ui`](./packages/ui#readme) | — | React pieces for Bot Pages. **Not released yet**: the name is reserved. |
 
-Botyard documentation: [docs.botyard.io](https://docs.botyard.io).
+The template the scaffolder ships is in [`templates/full-app`](./templates/full-app#readme).
+[`examples/`](./examples#readme) holds apps built on the packages as published on npm.
+
+## Learn more
+
+- [Bot Pages](https://botyard.io/features/bot-pages): what Bot Pages are and who they are for.
+- [Hosting apps](https://docs.botyard.io/docs/hosting-apps): how a bot serves an app, limits, security and troubleshooting.
+- [Botyard docs](https://docs.botyard.io/docs) and [getting started](https://docs.botyard.io/docs/getting-started).
+- [botyard.io](https://botyard.io)
 
 ## Contributing
 
 This repository is developed by the Botyard-AI team. Issues and discussions are
 welcome; pull requests from outside the team are not accepted. See
-[CONTRIBUTING.md](./CONTRIBUTING.md).
+[CONTRIBUTING.md](./CONTRIBUTING.md). Changes are recorded in
+[CHANGELOG.md](./CHANGELOG.md).
 
 ## Security
 
-Report vulnerabilities privately; see [SECURITY.md](./SECURITY.md).
+Every package is published from CI with
+[npm provenance](https://docs.npmjs.com/generating-provenance-statements), so
+you can check that a release was built from this repository. Report
+vulnerabilities privately; see [SECURITY.md](./SECURITY.md).
 
 ## License
 
