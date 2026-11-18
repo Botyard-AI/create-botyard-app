@@ -8,7 +8,10 @@
 // Kinds: `creating` is saved before the task is created, so a crash or a failed
 // save after the create can't lead to a second task: a `creating` handoff found
 // later is never created again (it goes manual). `task` is a task being
-// watched, bound to the reviewer it was assigned to. `manual` is a person's job.
+// watched, bound to the reviewer it was assigned to. `answered` holds the
+// reviewer's recommendation for finance to confirm. `manual` means there is no
+// recommendation coming: finance decides the reviewer's step without one.
+import { DECISIONS } from "../../shared/domain.ts"
 import { items, num, oneOf, record, str, strOrNull, type Rec } from "../../shared/narrow.ts"
 
 const at = "handoffs"
@@ -30,13 +33,23 @@ function reviewer(value: unknown, p: string) {
 
 function handoff(value: unknown, p: string) {
   const r = record(value, p)
-  const kind = oneOf(r, "kind", ["creating", "task", "manual"], p)
+  const kind = oneOf(r, "kind", ["creating", "task", "answered", "manual"], p)
   if (kind === "creating") {
     return {
       ...common(r, p),
       kind,
       board: str(r, "board", p, 63),
       reviewer: reviewer(r["reviewer"], `${p}.reviewer`),
+    }
+  }
+  if (kind === "answered") {
+    return {
+      ...common(r, p),
+      kind,
+      /** Who recommends: the reviewer the task was assigned to. */
+      reviewer: str(r, "reviewer", p),
+      decision: oneOf(r, "decision", DECISIONS, p),
+      note: str(r, "note", p, 2000),
     }
   }
   if (kind === "manual") {

@@ -8,11 +8,13 @@ import { decide } from "@/lib/quotes-api"
 type Props = Readonly<{
   quote: QuoteView
   role: ApproverRole
+  /** The approve button's text. */
+  approveLabel?: string
   onDecided: (quote: QuoteView) => void
 }>
 
 /** Approve, or send back with a note. Shown only to the role's approvers. */
-export function DecisionForm({ quote, role, onDecided }: Props) {
+export function DecisionForm({ quote, role, approveLabel = "Approve", onDecided }: Props) {
   const id = useId()
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState<Decision | null>(null)
@@ -53,7 +55,7 @@ export function DecisionForm({ quote, role, onDecided }: Props) {
       <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={busy !== null} onClick={() => void submit("approve")}>
           <Check aria-hidden />
-          {busy === "approve" ? "Approving…" : "Approve"}
+          {busy === "approve" ? "Approving…" : approveLabel}
         </Button>
         <Button
           size="sm"

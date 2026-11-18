@@ -1,20 +1,21 @@
 // Hands quotes in finance review to the reviewer bot as workforce tasks, and
-// records its verdict when it answers.
+// shows its recommendation on the quote when it answers. The bot only advises:
+// a finance approver records the reviewer step.
 //
 // Each tick looks only at the quotes waiting for the reviewer bot: never at
 // every task on the board. A quote with no handoff yet gets one: a task, if
 // the setup checks pass, or a manual handoff saying why not. A task is read
 // again only when its check is due, with the wait doubling (to 5 minutes)
 // while nothing changes. When the task moves to Approved or Changes requested,
-// verdict.json is read and recorded as the reviewer bot's decision.
+// verdict.json is read and shown as the reviewer bot's recommendation.
 //
-// Anything that cannot work falls back to manual: a finance approver then
-// records the reviewer bot's verdict on the quote page. The relay never
+// Anything that cannot work falls back to manual: no recommendation is coming,
+// and the quote page says why. The relay never
 // creates a task nobody will pick up, and never creates a second task for a
 // submission: the intent is saved before the create, and an intent found later
 // (a crash, a failed save, an unknown outcome) goes manual instead.
 //
-// Only the reviewer bot's own verdict counts. The board may hold no other
+// Only the reviewer bot's own verdict is shown. The board may hold no other
 // bots, verdict.json must be attributed by the platform to the reviewer the
 // task was assigned to, and its bytes must match the hash the platform lists.
 import {
@@ -169,8 +170,8 @@ function answerInstructions(quoteId: string): string {
     "2. Then move this task to **Approved** (decision `approve`) or **Changes requested** " +
       "(decision `reject`). Attach the file first: the Quote desk reads it when the task moves.",
     "",
-    "Changes requested sends the quote back to its owner with your note, so say what " +
-      "would make it acceptable.",
+    "Your answer is a recommendation: a finance approver confirms it. For Changes " +
+      "requested, say what would make the quote acceptable.",
   ].join("\n")
 }
 
@@ -236,6 +237,14 @@ export class ReviewRelay {
     if (h?.round !== round || h.kind === "creating") return { kind: "pending" }
     if (h.kind === "manual")
       return { kind: h.kind, since: h.since, reason: h.reason, instruction: h.instruction }
+    if (h.kind === "answered")
+      return {
+        kind: h.kind,
+        since: h.since,
+        reviewer: h.reviewer,
+        decision: h.decision,
+        note: h.note,
+      }
     return {
       kind: h.kind,
       since: h.since,
@@ -245,11 +254,6 @@ export class ReviewRelay {
       last_checked_at: h.last_checked_at,
       detail: h.detail,
     }
-  }
-
-  /** Whether the reviewer bot's verdict on this quote is recorded by hand now. */
-  isManual(quote: QuoteView): boolean {
-    return this.state(quote).kind === "manual"
   }
 
   async #pass(): Promise<void> {
@@ -349,7 +353,7 @@ export class ReviewRelay {
       this.#manual(
         { quote_id: quote.id, round },
         `Creating the review task on board ${board} may or may not have worked.`,
-        `Check board ${board} for a task on ${quote.id}, and record the reviewer's verdict here.`
+        `Check board ${board} for a task on ${quote.id}; a finance approver records the reviewer step here.`
       )
       return
     }
@@ -377,7 +381,7 @@ export class ReviewRelay {
     this.#manual(
       h,
       `Creating the review task on board ${h.board} was interrupted; the task may exist.`,
-      `Check board ${h.board} for a task on ${h.quote_id}, and record the reviewer's verdict here.`
+      `Check board ${h.board} for a task on ${h.quote_id}; a finance approver records the reviewer step here.`
     )
   }
 
@@ -506,17 +510,24 @@ export class ReviewRelay {
       this.#lost(h, err instanceof ParseError ? err.message : message(err))
       return
     }
-    const quote = desk.get(h.quote_id)
-    if (awaiting(quote) !== h.round) return // decided or sent back meanwhile; the next pass prunes
-    // Recorded as the reviewer the task was assigned to, whatever Settings says now.
-    const by = `${h.reviewer.slug} (bot)`
-    try {
-      if (verdict.analysis !== "") desk.comment(h.quote_id, by, verdict.analysis)
-      desk.decide(h.quote_id, "bot_review", verdict.decision, verdict.note, by)
-    } catch (err) {
-      if (!(err instanceof DeskError)) throw err
-      this.#log(`${h.quote_id}: verdict not recorded: ${err.message}`)
-    }
+    if (awaiting(desk.get(h.quote_id)) !== h.round) return // decided meanwhile; pruned next pass
+    // Advice only: shown on the quote for a finance approver to confirm. A file
+    // on a board is not proof of who wrote it, so it never decides anything.
+    this.#o.handoffs.set({
+      kind: "answered",
+      quote_id: h.quote_id,
+      round: h.round,
+      since: this.#now().toISOString(),
+      reviewer: h.reviewer.name,
+      decision: verdict.decision,
+      note: verdict.note,
+    })
+    const recommends = verdict.decision === "approve" ? "approval" : "changes"
+    const analysis = verdict.analysis === "" ? "" : `\n\n${verdict.analysis}`
+    this.#note(
+      h.quote_id,
+      `${h.reviewer.name} recommends ${recommends}: ${verdict.note}${analysis}`
+    )
   }
 
   // ---------- state changes ----------
@@ -543,7 +554,7 @@ export class ReviewRelay {
     this.#note(
       h.quote_id,
       `Reviewer handoff stopped (task #${String(h.task_number)} on board ${h.board}): ${reason} ` +
-        "A finance approver records the reviewer bot's verdict here instead."
+        "A finance approver records the reviewer step without its recommendation."
     )
   }
 

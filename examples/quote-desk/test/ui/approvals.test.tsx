@@ -55,31 +55,31 @@ describe("approvals panel", () => {
     expect(render(inFinanceReview(), null)).not.toContain("Request changes")
   })
 
-  test("the reviewer bot's card never has buttons", () => {
+  test("finance records the reviewer bot's step; nobody else gets its buttons", () => {
     const fresh = quoteInReview()
-    expect(render(fresh, settings(["finance", "business"]))).toContain("Request changes")
-    // One form only: finance. The bot card shows who, not buttons.
-    expect(render(fresh, settings([])).match(/textarea/g)).toBeNull()
+    // Both cards: the reviewer step and finance.
+    expect(render(fresh, settings(["finance"])).match(/<textarea/g)).toHaveLength(2)
+    expect(render(fresh, settings(["business"])).match(/<textarea/g)).toBeNull()
+    expect(render(fresh, settings([])).match(/<textarea/g)).toBeNull()
   })
 
-  test("once the handoff is manual, finance records the reviewer bot's part", () => {
+  test("the reviewer step says what finance is confirming", () => {
     const fresh = quoteInReview()
-    const html = render(fresh, settings(["finance"]), MANUAL)
-    expect(html.match(/<textarea/g)).toHaveLength(2)
-    expect(html).toContain("record its review for it")
-    // Business approvers still can't.
-    expect(render(fresh, settings(["business"]), MANUAL).match(/<textarea/g)).toBeNull()
-    // While the bot has it, nobody can.
-    const task: HandoffView = {
-      kind: "task",
-      since: "2026-11-10T09:00:00.000Z",
-      board: "quote-reviews",
-      task_number: 101,
-      column: "review",
-      last_checked_at: null,
-      detail: null,
+    const waiting = render(fresh, settings(["finance"]))
+    expect(waiting).toContain("Waiting for the reviewer bot&#x27;s recommendation")
+    expect(render(fresh, settings(["finance"]), MANUAL)).toContain(
+      "No recommendation is coming: record this step yourself."
+    )
+    const answered: HandoffView = {
+      kind: "answered",
+      since: "2026-11-10T09:00:15.000Z",
+      reviewer: "Reviewer Bot",
+      decision: "approve",
+      note: "Fine.",
     }
-    expect(render(fresh, settings(["finance"]), task).match(/<textarea/g)).toHaveLength(1)
+    const html = render(fresh, settings(["finance"]), answered)
+    expect(html).toContain("Reviewer Bot recommends approval: confirm it, or decide otherwise.")
+    expect(html).toContain("Confirm reviewer bot&#x27;s approval")
   })
 })
 
@@ -87,6 +87,19 @@ describe("handoff panel", () => {
   const now = new Date("2026-11-10T10:05:00Z")
   const show = (handoff: HandoffView) =>
     renderToStaticMarkup(<HandoffPanel handoff={handoff} now={now} />)
+
+  test("shows the reviewer's recommendation as advice", () => {
+    const html = show({
+      kind: "answered",
+      since: "2026-11-10T09:00:15.000Z",
+      reviewer: "Reviewer Bot",
+      decision: "reject",
+      note: "Margin below floor.",
+    })
+    expect(html).toContain("Reviewer Bot recommends changes")
+    expect(html).toContain("Margin below floor.")
+    expect(html).toContain("Advice only")
+  })
 
   test("shows nothing for a quote that was never handed off", () => {
     expect(show({ kind: "none" })).toBe("")

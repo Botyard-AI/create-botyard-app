@@ -12,7 +12,7 @@ const COLUMN: Readonly<Record<string, string>> = {
 
 /**
  * Where the reviewer bot's part of a quote stands: handed off on a board, and
- * for how long, or back to people, and why.
+ * for how long; its recommendation; or no recommendation coming, and why.
  */
 export function HandoffPanel({ handoff, now }: Readonly<{ handoff: HandoffView; now: Date }>) {
   switch (handoff.kind) {
@@ -31,14 +31,28 @@ export function HandoffPanel({ handoff, now }: Readonly<{ handoff: HandoffView; 
         <Notice tone="warn" role="status">
           <div className="grid gap-2">
             <p className="flex items-center gap-2 font-medium">
-              <Bot className="size-4" aria-hidden /> Reviewer bot: a finance approver reviews this
-              one
+              <Bot className="size-4" aria-hidden /> No recommendation from the reviewer bot
             </p>
             <p>{handoff.reason}</p>
             {handoff.instruction === null ? null : (
               <CopyText text={handoff.instruction} label="Copy the request" />
             )}
             <p className="text-xs">Since {when(handoff.since)}</p>
+          </div>
+        </Notice>
+      )
+    case "answered":
+      return (
+        <Notice tone={handoff.decision === "approve" ? "ok" : "warn"} role="status">
+          <div className="grid gap-1">
+            <p className="flex items-center gap-2 font-medium">
+              <Bot className="size-4" aria-hidden /> {handoff.reviewer} recommends{" "}
+              {handoff.decision === "approve" ? "approval" : "changes"}
+            </p>
+            <p className="whitespace-pre-wrap">{handoff.note}</p>
+            <p className="text-xs">
+              Advice only: a finance approver confirms the reviewer step below.
+            </p>
           </div>
         </Notice>
       )

@@ -70,7 +70,7 @@ export function tableRoutes(
   const { botpage, tools, desk, settings, relay, fileHosts } = o
   return [
     ...quoteRoutes(desk, { botpage, tools }),
-    ...approvalRoutes({ desk, settings, botpage, tools, relay }),
+    ...approvalRoutes({ desk, settings, botpage, tools }),
     ...reviewRoutes({ desk, settings, botpage, tools, relay, fileHosts }),
   ]
 }

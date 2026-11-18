@@ -41,20 +41,26 @@ function filledBy(role: ApproverRole, settings: SettingsView | null): string {
 }
 
 /**
- * The role, if the viewer may decide it now. The reviewer bot's role is only
- * decided here once its handoff has gone manual, and then by finance.
+ * The role, if the viewer may decide it now. The reviewer bot only advises:
+ * finance approvers record its step.
  */
 function myOpenRole(
   role: ApproverRole,
   quote: QuoteView,
-  settings: SettingsView | null,
-  handoff: HandoffView | null
+  settings: SettingsView | null
 ): ApproverRole | null {
   if (settings === null || quote.approvals[role] !== null || !openRoles(quote).includes(role))
     return null
-  if (role === "bot_review")
-    return handoff?.kind === "manual" && settings.my_roles.includes("finance") ? role : null
-  return settings.my_roles.includes(role) ? role : null
+  const decidedBy = role === "bot_review" ? "finance" : role
+  return settings.my_roles.includes(decidedBy) ? role : null
+}
+
+/** What a finance approver is told above the reviewer step's buttons. */
+function reviewerHint(handoff: HandoffView | null): string {
+  if (handoff?.kind === "answered")
+    return `${handoff.reviewer} recommends ${handoff.decision === "approve" ? "approval" : "changes"}: confirm it, or decide otherwise.`
+  if (handoff?.kind === "manual") return "No recommendation is coming: record this step yourself."
+  return "Waiting for the reviewer bot's recommendation. You can also record this step now."
 }
 
 /** Who has decided, who is next, and the decision buttons for the viewer's roles. */
@@ -74,7 +80,7 @@ export function ApprovalsPanel({ quote, settings, handoff, onChanged }: Props) {
           if (a !== null)
             status = `${a.decision === "approve" ? "Approved" : "Changes requested"} by ${a.by}`
           else if (next) status = "Waiting"
-          const mine = myOpenRole(role, quote, settings, handoff)
+          const mine = myOpenRole(role, quote, settings)
           return (
             <li key={role} className="flex items-start gap-3 px-4 py-3 text-sm">
               <span className="mt-0.5">{icon}</span>
@@ -86,12 +92,21 @@ export function ApprovalsPanel({ quote, settings, handoff, onChanged }: Props) {
                   <p className="mt-1 whitespace-pre-wrap">{a.note}</p>
                 ) : null}
                 {mine === "bot_review" ? (
-                  <p className="text-muted-foreground mt-1 text-xs">
-                    The reviewer bot isn&apos;t handling this quote: record its review for it.
-                  </p>
+                  <p className="text-muted-foreground mt-1 text-xs">{reviewerHint(handoff)}</p>
                 ) : null}
                 {mine === null ? null : (
-                  <DecisionForm quote={quote} role={mine} onDecided={onChanged} />
+                  <DecisionForm
+                    quote={quote}
+                    role={mine}
+                    approveLabel={
+                      mine === "bot_review" &&
+                      handoff?.kind === "answered" &&
+                      handoff.decision === "approve"
+                        ? "Confirm reviewer bot's approval"
+                        : "Approve"
+                    }
+                    onDecided={onChanged}
+                  />
                 )}
               </div>
             </li>

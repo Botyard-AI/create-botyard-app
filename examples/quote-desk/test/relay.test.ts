@@ -234,7 +234,7 @@ describe("handing a quote to the reviewer bot", () => {
     expect(platform.count("create_task", id)).toBe(0)
   })
 
-  test("the reviewer's approval is recorded as its decision", async () => {
+  test("the reviewer's approval is shown as a recommendation, and decides nothing", async () => {
     const { platform, relay, desk, later, submit } = setup()
     const id = submit()
     await relay.tick()
@@ -267,16 +267,25 @@ describe("handing a quote to the reviewer bot", () => {
     later(15_000)
     await relay.tick()
     const q = desk.get(id)
-    expect(q.approvals.bot_review).toMatchObject({
+    expect(q.approvals.bot_review).toBeNull()
+    expect(relay.state(q)).toEqual({
+      kind: "answered",
+      since: "2026-11-10T09:00:15.000Z",
+      reviewer: "Reviewer Bot",
       decision: "approve",
       note: "Margin below floor; 3% max.",
-      by: "reviewer-bot (bot)",
     })
-    expect(history(desk, id)).toContain("Credit is fine.")
-    expect(relay.state(q)).toEqual({ kind: "none" })
+    expect(history(desk, id)).toContain(
+      "Reviewer Bot recommends approval: Margin below floor; 3% max.\n\nCredit is fine."
+    )
+    // Answered: the task is not read again.
+    const reads = platform.count("get_task", id)
+    later(10 * 60_000)
+    await relay.tick()
+    expect(platform.count("get_task", id)).toBe(reads)
   })
 
-  test("changes requested sends the quote back to its owner", async () => {
+  test("changes requested is a recommendation too: the quote stays with finance", async () => {
     const { platform, relay, desk, later, submit } = setup()
     const id = submit()
     await relay.tick()
@@ -284,7 +293,8 @@ describe("handing a quote to the reviewer bot", () => {
     platform.task(id).column_id = "changes-requested"
     later(15_000)
     await relay.tick()
-    expect(desk.get(id).status).toBe("draft")
+    expect(desk.get(id).status).toBe("finance_review")
+    expect(relay.state(desk.get(id))).toMatchObject({ kind: "answered", decision: "reject" })
   })
 
   test("a resubmitted quote gets a new task", async () => {
@@ -295,6 +305,8 @@ describe("handing a quote to the reviewer bot", () => {
     platform.task(id).column_id = "changes-requested"
     later(15_000)
     await relay.tick()
+    // Finance confirms the recommendation, which sends the quote back.
+    desk.decide(id, "bot_review", "reject", "As the reviewer said.", "Grace Hopper")
     desk.submit(id, ME.name)
     later(1000)
     await relay.tick()
@@ -371,7 +383,7 @@ describe("waiting for the verdict", () => {
     platform.attach(id, verdict(id, "approve"))
     later(30_000)
     await relay.tick()
-    expect(desk.get(id).approvals.bot_review?.decision).toBe("approve")
+    expect(relay.state(desk.get(id))).toMatchObject({ kind: "answered", decision: "approve" })
   })
 
   test("a verdict that contradicts its column is not recorded", async () => {

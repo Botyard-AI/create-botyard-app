@@ -49,9 +49,11 @@ service and expose it with `--persistent`.
 
 ## The reviewer bot
 
-Each quote in finance review needs two decisions: the reviewer bot's and a
-finance approver's. The app hands the reviewer bot's part over as a task on a
-workforce board, and reads the verdict back from the task.
+Each quote in finance review has two steps: the reviewer bot's and a finance
+approver's. The reviewer bot only **advises**. The app hands it a task on a
+workforce board, reads its recommendation back and shows it on the quote. A
+finance approver records the reviewer step, confirming the recommendation or
+deciding otherwise. Nothing the bot writes decides a quote by itself.
 
 **Setting it up (Settings, owners and admins).**
 
@@ -80,7 +82,8 @@ waiting for the reviewer bot:
 - It reads the task with `get_task`, at first after 15 seconds, then less
   often, up to every 5 minutes. Only quotes in finance review are checked.
 - When the task is in `approved` or `changes-requested`, the app reads
-  `verdict.json` from it and records the decision as the reviewer bot's.
+  `verdict.json` from it and shows it on the quote as the reviewer bot's
+  recommendation. The task is not read again after that.
 - The task is created only once per submission. The app saves its intent
   first. If it stops between the create and saving the task (a crash, a full
   disk), it never creates the task again: the quote goes to people, and the
@@ -88,12 +91,12 @@ waiting for the reviewer bot:
 
 The quote page shows the task, its column, and how long it has waited.
 
-**When the bot can't do it, people do.** If the board isn't set, isn't
-there, lacks a column, the reviewer isn't on it or another bot is, the task
-disappears, the reviewer in Settings changes mid-review, or the verdict
-can't be read or isn't the reviewer's, the quote goes back to people. The page says why
-and since when. A finance approver then records the reviewer bot's decision
-from the quote page. Nothing else stops working.
+**When no recommendation is coming.** If the board isn't set, isn't there,
+lacks a column, the reviewer isn't on it or another bot is, the task
+disappears, the reviewer in Settings changes mid-review, or the verdict can't
+be read or isn't the reviewer's, the page says why and since when. A finance
+approver records the reviewer step without a recommendation; they can do so
+at any time anyway. Nothing else stops working.
 
 **The reviewer bot's side.** The reviewer needs `list_my_tasks`, `get_task`,
 `update_task`, `upload_task_files` and `join_workforce`. Being assigned a task
@@ -132,19 +135,19 @@ answer it. The app checks three things:
   file.
 - No other bot may be on the board.
 
-It records the decision under that reviewer's name, even if Settings has
+The recommendation is shown under that reviewer's name, even if Settings has
 changed since.
 
-**Limit: the board is not locked down.** Two things are out of the app's reach:
+**Why it's only advice.** Two things are out of the app's reach:
 
 - New boards are open to the whole org, and the app can't check or change
   that.
 - When a file is overwritten, the platform keeps the first uploader's name.
 
 So anyone who can write to the board's tasks could replace the reviewer's
-`verdict.json` and still have it read as the reviewer's. The finance
-approver's own decision is still needed, but treat the reviewer bot's verdict
-as advice, and keep the review board restricted to the reviewer and this bot.
+`verdict.json` and still have it read as the reviewer's. That is why a person
+confirms every recommendation. Keep the review board restricted to the
+reviewer and this bot all the same.
 
 ## Security notes
 

@@ -576,7 +576,7 @@ export function parseCommentInput(value: unknown) {
 
 function handoffState(value: unknown, at: string) {
   const r = record(value, at)
-  const kind = oneOf(r, "kind", ["none", "pending", "task", "manual"], at)
+  const kind = oneOf(r, "kind", ["none", "pending", "task", "answered", "manual"], at)
   switch (kind) {
     case "none":
     case "pending":
@@ -587,6 +587,14 @@ function handoffState(value: unknown, at: string) {
         since: str(r, "since", at, 40),
         reason: str(r, "reason", at, 1000),
         instruction: strOrNull(r, "instruction", at, 1000),
+      }
+    case "answered":
+      return {
+        kind,
+        since: str(r, "since", at, 40),
+        reviewer: str(r, "reviewer", at),
+        decision: oneOf(r, "decision", DECISIONS, at),
+        note: str(r, "note", at, 2000),
       }
     case "task":
       return {

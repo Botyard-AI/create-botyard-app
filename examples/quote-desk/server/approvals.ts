@@ -19,7 +19,6 @@ import { listOrgBots } from "./org.ts"
 import type { QuoteDesk } from "./quotes/desk.ts"
 import { ROLE_LABEL } from "./quotes/desk.ts"
 import type { SettingsStore } from "./quotes/settings.ts"
-import type { ReviewRelay } from "./review/relay.ts"
 import { checkReviewSettings } from "./review/routes.ts"
 import { displayName } from "./routes.ts"
 
@@ -31,7 +30,6 @@ export type ApprovalDeps = {
   settings: SettingsStore
   botpage: BotPage
   tools: ToolCaller
-  relay: ReviewRelay
 }
 
 /** Every reviewer bot and approver must exist in the org. */
@@ -60,7 +58,7 @@ async function people(settings: DeskSettings, botpage: BotPage): Promise<MemberO
 }
 
 export function approvalRoutes(deps: ApprovalDeps): Route[] {
-  const { desk, settings, botpage, tools, relay } = deps
+  const { desk, settings, botpage, tools } = deps
   return [
     endpoint(deps, API.settings, async ({ member }) => {
       const current = settings.get()
@@ -92,14 +90,10 @@ export function approvalRoutes(deps: ApprovalDeps): Route[] {
             throw new HttpError(403, `You are not a ${ROLE_LABEL[role].toLowerCase()} approver`)
           return desk.decide(id, role, decision, note, displayName(member))
         }
-        // The reviewer bot's verdict, recorded by hand: only while its handoff is manual.
+        // The reviewer bot only advises: a finance approver records its step,
+        // confirming its recommendation or deciding without one.
         if (!mine.includes("finance"))
-          throw new HttpError(403, "Only finance approvers record the reviewer bot's verdict")
-        if (!relay.isManual(desk.get(id)))
-          throw new HttpError(
-            409,
-            "The reviewer bot has this quote; its verdict is recorded when it answers"
-          )
+          throw new HttpError(403, "Only finance approvers record the reviewer bot's step")
         return desk.decide(id, role, decision, note, `${displayName(member)}, for the reviewer bot`)
       },
     }),

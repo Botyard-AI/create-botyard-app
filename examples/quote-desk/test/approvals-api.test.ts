@@ -147,18 +147,9 @@ describe("decisions", () => {
     })
   })
 
-  test("while the reviewer bot has a quote, its role cannot be decided from the page", async () => {
-    const { base, id } = await submitted()
-    const res = await fetch(
-      `${base}/api/quotes/${id}/decide`,
-      send(GRACE, "POST", { role: "bot_review", decision: "approve", note: "" })
-    )
-    expect(res.status).toBe(409)
-  })
-
-  test("with no review board, a finance approver records the reviewer bot's verdict", async () => {
+  test("finance records the reviewer bot's step, whatever its handoff; nobody else does", async () => {
     const { base, id, relay } = await submitted()
-    await relay.tick() // no board in CONFIGURED: the handoff is manual
+    await relay.tick() // no board in CONFIGURED: no recommendation is coming
     const handoff = await json(await fetch(`${base}/api/quotes/${id}/handoff`, asViewer(ADA)))
     expect(handoff).toMatchObject({ handoff: { kind: "manual", reason: NOT_SET_UP } })
 
