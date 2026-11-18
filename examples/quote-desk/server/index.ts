@@ -17,6 +17,7 @@ import { SettingsStore } from "./quotes/settings.ts"
 import {
   loadSettings,
   loadState,
+  prepareDataDir,
   readJson,
   saveSettings,
   saveState,
@@ -56,6 +57,16 @@ const dataDir = process.env["QUOTE_DESK_DATA_DIR"] ?? path.join(appRoot, "data")
 const stateFile = path.join(dataDir, "state.json")
 // Who approves: data/settings.json, edited on the Settings tab by org owners and admins.
 const settingsFile = path.join(dataDir, "settings.json")
+try {
+  prepareDataDir(dataDir)
+} catch (err) {
+  const why = err instanceof Error ? err.message : String(err)
+  process.stderr.write(
+    `Could not create or sync the data directory ${dataDir}: ${why}\n` +
+      "Its parent must exist and be writable. Fix that, then start again.\n"
+  )
+  process.exit(1)
+}
 const today = process.env["DEMO_TODAY"]
 if (today !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(today)) {
   process.stderr.write("DEMO_TODAY must be a date like 2026-11-10.\n")

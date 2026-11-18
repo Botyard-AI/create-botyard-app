@@ -87,10 +87,14 @@ waiting for the reviewer bot:
 - The task is created only once per submission. The app saves its intent
   first. If it stops between the create and saving the task (a crash, a full
   disk), it never creates the task again: the quote goes to people, and the
-  page says to check the board for the task. State files are synced to disk
-  on every write, and the task is created only once its intent is synced; if
-  syncing fails, the app tries again on the next pass. That relies on the disk
-  keeping what it reports as synced.
+  page says to check the board for the task. The task is created only once its
+  intent is synced to disk; if syncing fails, the app tries again on the next
+  pass. The data directory is created and synced at startup, and the app
+  refuses to start if that fails. This relies on the disk keeping what it
+  reports as synced.
+- Quote and settings saves are atomic (write, then rename), not
+  power-cut-proof. Only the review-handoff intent waits for durability before
+  acting.
 
 The quote page shows the task, its column, and how long it has waited.
 

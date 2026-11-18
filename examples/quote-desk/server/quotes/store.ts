@@ -1,4 +1,4 @@
-// The desk's files: JSON, each replaced atomically and synced to disk on every change.
+// The desk's files: JSON, each replaced atomically (write, then rename).
 import {
   closeSync,
   fsyncSync,
@@ -43,16 +43,30 @@ export function syncPath(p: string): void {
 }
 
 /**
+ * Creates the data directory if needed and syncs it and its parent, so the
+ * directory itself survives a power cut. Run once at startup, every time:
+ * a sync that failed on an earlier run is tried again here. Throws when it
+ * fails; the app then refuses to start. The parent must already exist.
+ */
+export function prepareDataDir(dir: string, sync = syncPath): void {
+  try {
+    mkdirSync(dir, { mode: 0o700 })
+  } catch (err) {
+    if (!(err instanceof Error && "code" in err && err.code === "EEXIST")) throw err
+  }
+  sync(dir)
+  sync(path.dirname(dir))
+}
+
+/**
  * Writes a temporary file, syncs it, then renames it over the old one. The
  * rename is the commit: once it is done the new state is the state, and
- * writeJson returns normally. Syncing the directories afterwards (the
- * rename, and any directory just created) makes it survive a power cut.
- * Returns whether that worked: false means written, but a power cut could
- * still undo it. Leaves no temporary file.
+ * writeJson returns normally. Syncing the directory afterwards makes the
+ * rename survive a power cut. Returns whether that worked: false means
+ * written, but a power cut could still undo it. Leaves no temporary file.
+ * The directory must exist (see prepareDataDir).
  */
 export function writeJson(file: string, value: unknown, sync = syncPath): boolean {
-  const dir = path.dirname(file)
-  const created = mkdirSync(dir, { recursive: true, mode: 0o700 })
   const tmp = `${file}.${String(process.pid)}.tmp`
   try {
     writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
@@ -62,19 +76,12 @@ export function writeJson(file: string, value: unknown, sync = syncPath): boolea
     rmSync(tmp, { force: true })
     throw err
   }
-  // The directory holding the rename, and the parent of each directory created.
-  const dirs = [dir]
-  if (created !== undefined)
-    for (let d = dir; d !== path.dirname(created); d = path.dirname(d)) dirs.push(path.dirname(d))
-  let durable = true
-  for (const d of dirs) {
-    try {
-      sync(d)
-    } catch {
-      durable = false // written, not proven durable: see above
-    }
+  try {
+    sync(path.dirname(file))
+    return true
+  } catch {
+    return false // written, not proven durable: see above
   }
-  return durable
 }
 
 export function loadState(file: string): DeskState | null {

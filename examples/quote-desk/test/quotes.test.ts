@@ -272,7 +272,7 @@ describe("parsing untrusted input", () => {
     desk.decide(desk.list()[1]?.id ?? "", "bot_review", "approve", "fine", "x")
     const dir = mkdtempSync(path.join(tmpdir(), "qd-"))
     try {
-      const file = path.join(dir, "data", "state.json")
+      const file = path.join(dir, "state.json")
       expect(loadState(file)).toBeNull()
       saveState(file, desk.state())
       const loaded = loadState(file)

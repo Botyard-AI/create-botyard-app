@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, expect, test } from "vitest"
-import { readJson, syncPath, writeJson } from "../server/quotes/store.ts"
+import { prepareDataDir, readJson, syncPath, writeJson } from "../server/quotes/store.ts"
 
 const dirs: string[] = []
 afterEach(() => {
@@ -25,16 +25,35 @@ test("writeJson replaces the file and leaves no temporary file", () => {
   expect(readdirSync(path.dirname(file))).toEqual(["state.json"])
 })
 
-test("the file is synced before the rename, then its directory and each one created", () => {
+test("the file is synced before the rename, then its directory", () => {
   const root = tempDir()
-  const file = path.join(root, "data", "reviews", "handoffs.json")
+  const file = path.join(root, "state.json")
   const synced: string[] = []
   writeJson(file, { n: 1 }, (p) => {
     synced.push(p.endsWith(".tmp") ? "tmp" : path.relative(root, p) || ".")
     syncPath(p)
   })
-  // reviews holds the rename; data holds reviews; root holds data.
-  expect(synced).toEqual(["tmp", "data/reviews", "data", "."])
+  expect(synced).toEqual(["tmp", "."])
+})
+
+test("a startup sync that fails refuses to start; the next start syncs both again", () => {
+  const root = tempDir()
+  const dir = path.join(root, "data")
+  const synced: string[] = []
+  const failParent = (p: string) => {
+    if (p === root) throw new Error("EIO")
+    syncPath(p)
+  }
+  // index.ts exits when this throws.
+  expect(() => {
+    prepareDataDir(dir, failParent)
+  }).toThrow("EIO")
+  // The directory now exists, and the parent is synced anyway.
+  prepareDataDir(dir, (p) => {
+    synced.push(path.relative(root, p) || ".")
+    syncPath(p)
+  })
+  expect(synced).toEqual(["data", "."])
 })
 
 test("a directory sync that fails after the rename is reported, not thrown", () => {
