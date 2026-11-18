@@ -4,29 +4,45 @@
 // claims to be from, with notify_human, whether they sent it. Only their
 // reply, signed in, has the bot read it.
 //
-// Every minute it lists the stored mail of the last day
-// (search_inbound_emails) and handles the oldest emails it hasn't handled, at
-// most 10 a pass:
+// Every minute it walks the stored mail oldest first, from where it got to
+// (`cursor`, never before the inbox started or more than a day back), and
+// handles up to 10 emails it hasn't handled:
 //   1. reads it (get_inbound_email) and skips auto-replies, mail that failed
 //      DMARC, and senders who aren't org members;
-//   2. notifies that member in a new conversation. The notice holds none of
-//      the email: only that one arrived in their name, when, and its id. If
-//      they reply there, the bot reads it (get_inbound_email) and helps.
+//   2. notifies that member in a new conversation, at most once an hour per
+//      member: more mail from them in that hour is covered by that notice
+//      ("batched"). The notice holds none of the email: only the member's own
+//      address and when the mail started. If they reply there, the bot reads
+//      their mail from that time on and helps.
 // What was handled is kept in data/mail.json.
 import type { BotPage } from "@botyard/botpage"
 import { OutcomeUnknownError, TransportError, type ToolCaller } from "@botyard/runtime"
-import { bool, isRecord, items, oneOf, record, str, strOrNull, type Rec } from "../shared/narrow.ts"
+import {
+  ParseError,
+  isRecord,
+  items,
+  num,
+  oneOf,
+  record,
+  str,
+  strOrNull,
+  type Rec,
+} from "../shared/narrow.ts"
 
 const LOOKBACK_MS = 24 * 3600_000
 const PAGE = 50
-/** Listing stops after this many emails: more than a day's mail for a desk. */
-const MAX_LISTED = 1000
+/** Pages listed per pass at most; a backlog continues on the next pass. */
+const MAX_PAGES = 20
+/** How far back each pass relists from the cursor, for mail stored late. */
+const OVERLAP_MS = 10 * 60_000
+/** One notice per member per hour at most. */
+const NOTICE_EVERY_MS = 3600_000
 /** At most this many emails are handled per pass; the rest wait for the next. */
 const MAX_PER_PASS = 10
 /** Handled ids kept; older ones fall outside the lookback anyway. */
 const MAX_KEPT = 2000
 const MAX_ATTEMPTS = 3
-const OUTCOMES = ["asked", "skipped", "unknown"] as const
+const OUTCOMES = ["asked", "batched", "skipped", "unknown"] as const
 
 function handled(value: unknown, p: string) {
   const r = record(value, p)
@@ -44,8 +60,22 @@ export function parseMailState(value: unknown) {
   return {
     /** Mail received before this is never handled: the inbox started then. */
     since: str(r, "since", "mail", 40),
+    /** Every email received up to here is handled; the next pass starts here. */
+    cursor: strOrNull(r, "cursor", "mail", 40),
     handled: items(r, "handled", "mail", MAX_KEPT, handled),
+    /** Member user id to when they were last asked, ISO. */
+    asked: askedTimes(record(r["asked"], "mail.asked")),
   }
+}
+
+function askedTimes(r: Rec): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [userId, at] of Object.entries(r)) {
+    if (typeof at !== "string" || at.length > 40)
+      throw new ParseError(`mail.asked.${userId}: not a time`)
+    out[userId.slice(0, 80)] = at
+  }
+  return out
 }
 
 export type MailState = ReturnType<typeof parseMailState>
@@ -98,7 +128,12 @@ export class MailInbox {
     this.#now = options.now ?? (() => new Date())
     this.#log = options.log ?? ((line) => process.stderr.write(`[mail] ${line}\n`))
     const stored = options.state ?? null
-    this.#state = stored ?? { since: this.#now().toISOString(), handled: [] }
+    this.#state = stored ?? {
+      since: this.#now().toISOString(),
+      cursor: null,
+      handled: [],
+      asked: {},
+    }
     // A fresh inbox saves when it started: mail from before then is never handled.
     if (stored === null) this.#change(this.#state)
   }
@@ -133,28 +168,51 @@ export class MailInbox {
   async #pass(): Promise<void> {
     this.#flush()
     const done = new Set(this.#state.handled.map((h) => h.id))
-    const fresh = new Map<string, string>()
-    for (const m of await this.#list()) if (!done.has(m.id)) fresh.set(m.id, m.received_at ?? "")
-    // Oldest first; whatever is left over waits for the next pass.
-    const next = [...fresh].sort((a, b) => a[1].localeCompare(b[1])).slice(0, MAX_PER_PASS)
-    for (const [id] of next) await this.#try(id)
+    const todo: string[] = []
+    // The newest time up to which everything listed is handled.
+    let handledTo: string | null = null
+    let gap = false
+    for await (const m of this.#oldestFirst()) {
+      if (done.has(m.id)) {
+        if (!gap && m.received_at !== null) handledTo = m.received_at
+        continue
+      }
+      done.add(m.id) // listed twice when new mail shifts the pages
+      gap = true
+      todo.push(m.id)
+      if (todo.length >= MAX_PER_PASS) break
+    }
+    if (handledTo !== null && handledTo > (this.#state.cursor ?? ""))
+      this.#change({ ...this.#state, cursor: handledTo })
+    for (const id of todo) await this.#try(id)
   }
 
-  /** The stored mail received since the inbox started, at most a day back. */
-  async #list(): Promise<{ id: string; received_at: string | null }[]> {
-    const floor = Math.max(Date.parse(this.#state.since), this.#now().getTime() - LOOKBACK_MS)
-    const since = new Date(floor).toISOString()
-    const out: { id: string; received_at: string | null }[] = []
-    for (let offset = 0; offset < MAX_LISTED; offset += PAGE) {
-      const at = "search_inbound_emails"
+  /**
+   * The stored mail from the cursor on (a little before it, for mail stored
+   * late), oldest first. The platform lists newest first, so the pages are
+   * read from the last one back.
+   */
+  async *#oldestFirst(): AsyncGenerator<{ id: string; received_at: string | null }> {
+    const floors = [Date.parse(this.#state.since), this.#now().getTime() - LOOKBACK_MS]
+    if (this.#state.cursor !== null) floors.push(Date.parse(this.#state.cursor) - OVERLAP_MS)
+    const since = new Date(Math.max(...floors)).toISOString()
+    const at = "search_inbound_emails"
+    const page = async (offset: number) => {
       const r = record(
         await this.#o.tools.call(at, { since, status: "stored", limit: PAGE, offset }),
         at
       )
-      out.push(...items(r, "items", at, PAGE, listed))
-      if (!bool(r, "has_more", at)) break
+      return { list: items(r, "items", at, PAGE, listed), total: num(r, "total", at) }
     }
-    return out
+    const first = await page(0)
+    let offset = Math.max(0, first.total - PAGE)
+    for (let n = 0; n < MAX_PAGES; n++) {
+      const { list } = offset === 0 ? first : await page(offset)
+      // The last page may overlap the one before it; duplicates are skipped.
+      yield* [...list].reverse()
+      if (offset === 0) return
+      offset = Math.max(0, offset - PAGE)
+    }
   }
 
   /**
@@ -191,12 +249,17 @@ export class MailInbox {
       this.#done(id, "skipped", "the sender is not an org member")
       return
     }
+    const last = this.#state.asked[member.userId]
+    if (last !== undefined && this.#now().getTime() - Date.parse(last) < NOTICE_EVERY_MS) {
+      this.#done(id, "batched", member.userId) // that notice covers mail from then on
+      return
+    }
     try {
       await this.#o.tools.call("notify_human", {
         user_ids: [member.userId],
         subject: "An email in your name reached the Quote desk",
         // The member's own address from the directory, not the From header.
-        body: noticeBody(id, memberEmail, mail.received_at),
+        body: noticeBody(memberEmail, mail.received_at ?? this.#now().toISOString()),
         level: "info",
         target: {
           kind: "new",
@@ -207,12 +270,19 @@ export class MailInbox {
     } catch (err) {
       if (!(err instanceof OutcomeUnknownError)) throw err
       // Asking again could ask twice; the notice may well be there already.
+      this.#asked(member.userId)
       this.#done(id, "unknown", member.userId)
       this.#log(`${id}: the notice may or may not have gone out; not sending it again`)
       return
     }
+    this.#asked(member.userId)
     this.#done(id, "asked", member.userId)
     this.#log(`${id}: asked its sender to confirm it`)
+  }
+
+  #asked(userId: string): void {
+    const asked = { ...this.#state.asked, [userId]: this.#now().toISOString() }
+    this.#change({ ...this.#state, asked })
   }
 
   #done(id: string, outcome: Handled["outcome"], detail: string): void {
@@ -271,16 +341,16 @@ export function screen(mail: Email): string | null {
 }
 
 /**
- * The notice: written by the app, with nothing from the email but its id and
- * the member's own address, so it can't carry instructions to the bot.
+ * The notice: written by the app, with nothing from the email but the
+ * member's own address and a time, so it can't carry instructions to the bot.
  */
-export function noticeBody(id: string, from: string, receivedAt: string | null): string {
-  const when = receivedAt === null ? "" : ` at ${receivedAt}`
+export function noticeBody(from: string, since: string): string {
   return [
-    `An email from ${from} reached the Quote desk${when}.`,
+    `Mail from ${from} reached the Quote desk, starting ${since}.`,
     "Email addresses aren't verified, so nothing has been done with it, and the bot hasn't read it.",
+    "You get at most one of these an hour; more mail from your address in that hour is covered by this one.",
     "",
-    `If you sent it, reply here and the bot will read it (inbound email ${id}) and help.`,
-    "If you didn't, ignore this.",
+    `If you sent it, reply here and the bot will read the mail from ${from} received since ${since}`,
+    "(search_inbound_emails) and help. If you didn't, ignore this.",
   ].join("\n")
 }

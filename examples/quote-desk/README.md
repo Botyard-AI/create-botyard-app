@@ -194,15 +194,18 @@ bot may act on whatever it reads. So the app never shows an email to the bot
 itself. It asks the member the email claims to be from whether they sent it,
 and only their reply, signed in, has the bot read it.
 
-- Every minute the app lists the stored mail of the last day
-  (`search_inbound_emails`), and handles the oldest it hasn't handled, at most
-  10 a pass. Mail received before the inbox first started is left alone.
+- Every minute the app walks the stored mail (`search_inbound_emails`)
+  oldest first, from where it got to, and handles up to 10 emails it hasn't
+  handled. Mail received before the inbox first started, or more than a day
+  ago, is left alone.
 - It skips auto-replies, mail that failed DMARC, and senders who aren't org
   members.
 - For the rest it notifies that member (`notify_human`, in a new
-  conversation). The notice holds none of the email, only its id, the
-  member's own address and when it arrived. If they reply there, the bot reads
-  it (`get_inbound_email`) and helps. If they didn't send it, nothing happens.
+  conversation), at most once an hour. More mail from them in that hour is
+  covered by the same notice. The notice holds none of the email, only the
+  member's own address and when the mail started. If they reply there, the
+  bot reads their mail from then on and helps. If they didn't send it,
+  nothing happens.
 - What was handled is kept in `data/mail.json`. An email that can't be handled
   is tried 3 times, then skipped. A notice whose outcome is unknown isn't sent
   again.
