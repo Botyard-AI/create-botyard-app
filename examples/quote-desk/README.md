@@ -220,12 +220,22 @@ nobody is asked about it. Very high volume can lag.
 **It needs** `QUOTE_DESK_NOTIFY_THREAD` (new conversations start from it, as
 for notices), and the tools `search_inbound_emails`, `get_inbound_email` and
 `notify_human`. `QUOTE_DESK_MAIL=off` turns it off.
+
 ## The quotation PDF
 
 **PDF** on a quote downloads `GET /api/quotes/:id/pdf`, for org members. The
 server builds it with [`pdf-lib`](https://pdf-lib.js.org), in plain
-JavaScript with no browser or system fonts. The bot can fetch it the same way
-and send it to the owner with `send_files`.
+JavaScript with no browser or system fonts.
+
+The bot gets the same file with `npm run pdf -- <quote id>`, which writes it
+to `data/pdf/` and prints the path, then sends it with `send_files`, for
+example to the owner when the quote is approved. The script reads the app's
+own data directory, so the HTTP route stays members-only. The app doesn't
+send the PDF itself: the bot does, when someone asks it to.
+
+When the delivery option isn't available for the region, the PDF says delivery
+is to be confirmed and the total excludes it, rather than printing a free
+delivery.
 
 It's the customer's document, so `quoteSheet` (`server/pdf.ts`) puts in only
 what the customer may see: the lines, prices, discount, delivery, terms and

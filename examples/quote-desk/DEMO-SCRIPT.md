@@ -1,4 +1,4 @@
-# Quote desk demo script (about 15 minutes)
+# Quote desk demo script (about 20 minutes)
 
 Fictional data only: Dunder Mifflin paper, Schrute Farms B&B.
 
@@ -17,7 +17,8 @@ Fictional data only: Dunder Mifflin paper, Schrute Farms B&B.
 - The app calling Botyard tools through its bot.
 - A handoff to another bot over a workforce board.
 - Notices that open a conversation with the right person.
-- A PDF of the quote.
+- Mail to the bot, picked up only after the sender confirms, signed in.
+- A PDF of the quote, downloaded by a person and sent by the bot.
 
 ## Before the call (the host bot)
 
@@ -113,11 +114,39 @@ notice.
 Business clicks **Approve** on the **Business** card. The status becomes
 **Approved**, and the rep gets a notice to send the quote to the customer.
 
-## 7. The PDF, and closing (about 2 minutes)
+## 7. The PDF (about 2 minutes)
 
-- Click **PDF** on the quote. The file holds what the customer may see:
-  lines, prices, delivery, terms and totals. It shows no cost, margin or
-  approval notes. Before approval it is marked as a draft.
+**In the browser.** Click **PDF** on the quote. The file holds what the
+customer may see: lines, prices, delivery, terms and totals. It shows no cost,
+margin or approval notes. Before approval it is marked as a draft.
+
+**From the bot.** In the conversation the approval notice opened, the rep asks
+the host bot: "send me the PDF of <quote id>". The bot runs
+`npm run pdf -- <quote id>` in the app's directory and sends the printed file
+with `send_files`.
+
+**Expected:** the same PDF arrives in that conversation, without the draft
+mark. The app never sends it on its own: the bot sends it when asked. The HTTP
+route stays members-only.
+
+## 8. Mail to the bot (about 3 minutes)
+
+A member, for example the rep, emails the host bot's Botyard address from the
+address their Botyard account uses. Any subject and text will do: "Please
+quote 50 boxes of A4 for Schrute Farms."
+
+**Expected, within about two minutes:**
+
+- The member gets a notice in a new conversation. It asks whether they sent
+  mail to the bot, and holds only their own address and the time. It contains
+  nothing from the email.
+- They reply there, signed in: "yes, that was me". Only then does the bot read
+  their mail from that time on, and help.
+- Mail from an address that isn't an org member's gets no notice. Neither do
+  auto-replies.
+
+## 9. Closing (about 1 minute)
+
 - Click **Record send (demo)**. The email is recorded, never delivered: the
   address is on a `.invalid` domain. Then click **Mark signed (mock)**.
 - On **Quarter close**, Scranton's committed value goes up and its headroom
@@ -135,6 +164,9 @@ Business clicks **Approve** on the **Business** card. The status becomes
 - **The handoff panel says a step is missing**, for example the reviewer isn't
   on the board. It says what to fix. Until it is fixed, the quote goes to
   people.
+- **No mail notice arrives.** The inbox checks every minute and needs the
+  tools `search_inbound_emails`, `get_inbound_email` and `notify_human`. Check
+  the service log, and that `QUOTE_DESK_MAIL` isn't `off`.
 - **No notices arrive.** Check that `QUOTE_DESK_NOTIFY_THREAD` is set and that
   the approvers are picked in Settings. The service log says "nobody to tell"
   when no one is.

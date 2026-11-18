@@ -5,6 +5,7 @@
 import { requireMember } from "@botyard/botpage/node"
 import type { BotPage } from "@botyard/botpage"
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib"
+import { DOWNLOADS } from "../shared/api.ts"
 import type { Crm, Erp, QuoteView } from "../shared/types.ts"
 import { HttpError, type Route } from "./http.ts"
 import type { QuoteDesk } from "./quotes/desk.ts"
@@ -63,13 +64,22 @@ export function quoteSheet(q: QuoteView, erp: Erp, crm: Crm): Row[] {
       amount: `-${money(p.order_discount_eur)}`,
     })
   }
+  const deliveryLabel = option === undefined ? "Delivery" : `Delivery (${option})`
+  // An unavailable delivery is priced at zero by the engine: a placeholder, not
+  // a fee. Say it is to be confirmed, and that the total leaves it out.
+  const delivered = p.delivery.kind === "estimate"
   rows.push(
     {
       kind: "total",
-      label: option === undefined ? "Delivery" : `Delivery (${option})`,
-      amount: money(p.delivery_cost_eur),
+      label: deliveryLabel,
+      amount: delivered ? money(p.delivery_cost_eur) : "to be confirmed",
     },
-    { kind: "total", label: "Total", amount: money(p.total_eur), bold: true },
+    {
+      kind: "total",
+      label: delivered ? "Total" : "Total, excluding delivery",
+      amount: money(p.total_eur),
+      bold: true,
+    },
     { kind: "gap" },
     { kind: "heading", text: "Terms" },
     { kind: "text", text: `Payment: ${terms}` }
@@ -150,30 +160,43 @@ export async function renderPdf(title: string, rows: readonly Row[]): Promise<Ui
       case "gap":
         y -= 10
         break
+      default:
+        // A new row kind must be drawn here, or customer text would vanish.
+        unreachable(row)
     }
   }
   return doc.save()
+}
+
+/** The quote's PDF, as the route serves it and `npm run pdf` writes it. */
+export function quotePdf(desk: QuoteDesk, quote: QuoteView): Promise<Uint8Array> {
+  return renderPdf(`Quotation ${quote.id}`, quoteSheet(quote, desk.erp, desk.crm))
+}
+
+/** "Q-2026-0201.pdf", or "Q-2026-0201-draft.pdf" before approval. */
+export function pdfName(quote: QuoteView): string {
+  return `${quote.id}${FINAL.includes(quote.status) ? "" : "-draft"}.pdf`
+}
+
+function unreachable(row: never): never {
+  throw new Error(`renderPdf: no layout for row ${JSON.stringify(row)}`)
 }
 
 /** GET /api/quotes/:id/pdf: the quotation, for org members. */
 export function pdfRoute(botpage: BotPage, desk: QuoteDesk): Route {
   return {
     method: "GET",
-    path: "/api/quotes/:id/pdf",
+    path: DOWNLOADS.quotePdf,
     handler: (req, res, params) =>
       requireMember(botpage, async (_rq, rs) => {
         const id = params["id"]
         if (id === undefined) throw new HttpError(404, "not found")
         const quote = desk.get(id)
-        const bytes = await renderPdf(
-          `Quotation ${quote.id}`,
-          quoteSheet(quote, desk.erp, desk.crm)
-        )
-        const draft = FINAL.includes(quote.status) ? "" : "-draft"
+        const bytes = await quotePdf(desk, quote)
         rs.writeHead(200, {
           "content-type": "application/pdf",
           "content-length": bytes.length,
-          "content-disposition": `attachment; filename="${quote.id}${draft}.pdf"`,
+          "content-disposition": `attachment; filename="${pdfName(quote)}"`,
           "cache-control": "no-store",
         })
         rs.end(Buffer.from(bytes))

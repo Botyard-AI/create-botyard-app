@@ -45,6 +45,11 @@ export function fillPath(path: string, params: Readonly<Record<string, string>>)
     .join("/")
 }
 
+/** A download's URL (shared/api.ts, DOWNLOADS), its parameters typed from the path. */
+export function downloadUrl<P extends string>(path: P, params: PathParams<P>): string {
+  return fillPath(path, params)
+}
+
 /** The query string for a parsed query; null values are left out. */
 export function queryString(query: Query): string {
   const search = new URLSearchParams()

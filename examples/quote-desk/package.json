@@ -12,6 +12,7 @@
     "build": "vite build",
     "start": "NODE_ENV=production node server/index.ts",
     "expose": "node scripts/expose.ts",
+    "pdf": "node scripts/quote-pdf.ts",
     "test": "vitest run",
     "typecheck": "tsc -b",
     "lint": "eslint --max-warnings 0 .",
