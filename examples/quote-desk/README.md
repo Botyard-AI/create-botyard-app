@@ -156,6 +156,37 @@ So anyone who can write to the board's tasks could replace the reviewer's
 confirms every recommendation. Keep the review board restricted to the
 reviewer and this bot all the same.
 
+## Notifications
+
+The app tells people when a quote needs them, with `notify_human`. Each
+notice starts its own conversation, so the person has somewhere to answer.
+
+| Who | When |
+| --- | --- |
+| Finance approvers | A quote in finance review, once the reviewer bot has answered or no answer is coming |
+| Business approvers | A quote in business review |
+| The quote's owner | Changes were requested, or the quote is approved |
+
+**Setting it up.**
+
+- `QUOTE_DESK_NOTIFY_THREAD`: the id of a conversation of this bot's. New
+  notice threads start from it, because `notify_human` needs an origin on
+  OpenClaw. Without it, nobody is notified, and the app says so at startup.
+- `QUOTE_DESK_PAGE_URL` (optional): the published Bot Page, https. Notices
+  then link to the quote. The app can't find its own page URL, so you set it.
+- The bot needs `notify_human`. Approvers come from Settings. The owner is
+  found by email, which is fine here: a notice grants nothing.
+
+**How it behaves.** Every 30 seconds the app works out which notices are
+due and sends the ones it hasn't sent; they're kept in
+`data/notifications.json`. A resubmitted quote gets new notices. A failed send
+is tried again on the next pass, at most 3 times. A send whose outcome is
+unknown isn't repeated, because a missed notice is better than a duplicate. A
+save that fails is logged and retried every pass, without resending; only a restart before
+the next good save, or a crash between a send and its save, can send a notice
+twice. `QUOTE_DESK_PAGE_URL` goes into every notice, so it may not carry a
+user, password, query or fragment.
+
 ## Security notes
 
 - **Dependencies.** `package-lock.json` pins every package, including

@@ -25,6 +25,8 @@ import {
 } from "./quotes/store.ts"
 import { HandoffStore, parseHandoffs } from "./review/handoffs.ts"
 import { ReviewRelay } from "./review/relay.ts"
+import { Notifier, pageUrl, parseNotices } from "./notify.ts"
+import { CONVERSATION_ID } from "../shared/parse.ts"
 import { fileHosts as parseFileHosts } from "./review/verdict.ts"
 import { loadStatic, StaticLoadError, type StaticFiles } from "./static.ts"
 
@@ -101,6 +103,31 @@ const handoffs = new HandoffStore({
 const fileHosts = parseFileHosts(process.env["QUOTE_DESK_FILE_HOSTS"])
 const relay = new ReviewRelay({ desk, settings, handoffs, tools: runtime, fileHosts })
 relay.start()
+
+// Notices to approvers and owners: data/notifications.json. They need a
+// conversation of this bot's to start their threads from
+// (QUOTE_DESK_NOTIFY_THREAD); without it, nobody is notified.
+// QUOTE_DESK_PAGE_URL, the published page, adds a link to the quote.
+const notifyThread = process.env["QUOTE_DESK_NOTIFY_THREAD"] ?? ""
+if (notifyThread === "") {
+  process.stderr.write("[notify] off: set QUOTE_DESK_NOTIFY_THREAD to notify approvers\n")
+} else if (!CONVERSATION_ID.test(notifyThread)) {
+  process.stderr.write("QUOTE_DESK_NOTIFY_THREAD must be a conversation id.\n")
+  process.exit(1)
+} else {
+  const noticesFile = path.join(dataDir, "notifications.json")
+  new Notifier({
+    desk,
+    settings,
+    handoffs,
+    botpage,
+    tools: runtime,
+    origin: notifyThread,
+    pageUrl: pageUrl(process.env["QUOTE_DESK_PAGE_URL"]),
+    notices: readJson(noticesFile, parseNotices),
+    save: (notices) => writeJson(noticesFile, { notices }),
+  }).start()
+}
 
 const server = createServer()
 let ui: Middleware | undefined
