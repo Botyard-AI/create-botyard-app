@@ -210,6 +210,11 @@ and only their reply, signed in, has the bot read it.
   is tried 3 times, then skipped. A notice whose outcome is unknown isn't sent
   again.
 
+**Limits.** This is a best-effort, low-volume poller for an example.
+Production use needs a push or event source for inbound mail, which the
+platform doesn't offer yet (platform feedback filed). Mail stored or listed
+out of order can wait for a later pass or notice; very high volume can lag.
+
 **It needs** `QUOTE_DESK_NOTIFY_THREAD` (new conversations start from it, as
 for notices), and the tools `search_inbound_emails`, `get_inbound_email` and
 `notify_human`. `QUOTE_DESK_MAIL=off` turns it off.
