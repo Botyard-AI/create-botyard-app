@@ -32,31 +32,46 @@ export function readJson<T>(file: string, parse: (value: unknown) => T): T | nul
   return parse(json)
 }
 
-/**
- * Writes a temporary file, then renames it over the old one, syncing both to
- * disk so a write that returned survives a power cut. Leaves no temporary file.
- */
-export function writeJson(file: string, value: unknown): void {
-  const dir = path.dirname(file)
-  mkdirSync(dir, { recursive: true, mode: 0o700 })
-  const tmp = `${file}.${String(process.pid)}.tmp`
-  try {
-    writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
-    syncPath(tmp)
-    renameSync(tmp, file)
-  } catch (err) {
-    rmSync(tmp, { force: true })
-    throw err
-  }
-  syncPath(dir) // the rename itself
-}
-
-function syncPath(p: string): void {
+/** Flushes a file or directory to disk. */
+export function syncPath(p: string): void {
   const fd = openSync(p, "r")
   try {
     fsyncSync(fd)
   } finally {
     closeSync(fd)
+  }
+}
+
+/**
+ * Writes a temporary file, syncs it, then renames it over the old one. The
+ * rename is the commit: once it is done the new state is the state, and
+ * writeJson returns normally. Syncing the directories afterwards (the
+ * rename, and any directory just created) makes it survive a power cut, but
+ * is best effort: if it fails, the write still happened, so it is not
+ * reported as a failed save. Leaves no temporary file.
+ */
+export function writeJson(file: string, value: unknown, sync = syncPath): void {
+  const dir = path.dirname(file)
+  const created = mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const tmp = `${file}.${String(process.pid)}.tmp`
+  try {
+    writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
+    sync(tmp)
+    renameSync(tmp, file)
+  } catch (err) {
+    rmSync(tmp, { force: true })
+    throw err
+  }
+  // The directory holding the rename, and the parent of each directory created.
+  const dirs = [dir]
+  if (created !== undefined)
+    for (let d = dir; d !== path.dirname(created); d = path.dirname(d)) dirs.push(path.dirname(d))
+  for (const d of dirs) {
+    try {
+      sync(d)
+    } catch {
+      // Best effort, see above. Some filesystems can't sync a directory at all.
+    }
   }
 }
 
