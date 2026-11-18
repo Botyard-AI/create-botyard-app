@@ -187,6 +187,33 @@ the next good save, or a crash between a send and its save, can send a notice
 twice. `QUOTE_DESK_PAGE_URL` goes into every notice, so it may not carry a
 user, password, query or fragment.
 
+## The mail inbox
+
+Org members can email the bot about a quote. The app hands each email to the
+bot in a conversation with the sender, and the bot answers there.
+
+- Every minute the app lists the stored mail of the last day
+  (`search_inbound_emails`) and handles each email it hasn't handled, oldest
+  first. Mail received before the inbox first started is left alone.
+- It skips auto-replies, mail that failed DMARC, and senders who aren't org
+  members.
+- Replies (same sender, same subject without `Re:`) go into the same
+  conversation. A new thread has the sender as a member.
+- The email is posted with `send_message_to_self`, which wakes the bot. The
+  post lists the quote ids the email mentions.
+- What was handled is kept in `data/mail.json`. A refused email is tried 3
+  times, then skipped. A post whose outcome is unknown isn't posted again.
+
+**It needs** `QUOTE_DESK_NOTIFY_THREAD` (new threads start from it, as for
+notices), and the tools `search_inbound_emails`, `get_inbound_email`,
+`create_conversation` and `send_message_to_self`. `QUOTE_DESK_MAIL=off` turns
+it off.
+
+**An email grants nothing.** The platform doesn't verify the From address, so
+anyone can claim to be a member. The app posts each email as unverified, into
+a conversation the member it claims to be from is in, so they see anything
+sent in their name. Quotes change only in the app, by signed-in members.
+
 ## Security notes
 
 - **Dependencies.** `package-lock.json` pins every package, including
