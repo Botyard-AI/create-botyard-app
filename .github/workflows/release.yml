@@ -15,6 +15,12 @@ name: Release
 # - Re-running a failed run resumes it: a version already published from this
 #   commit by this workflow is not published again; any other copy fails.
 
+# Shown in the Actions list and the npm-publish approval prompt. Only the
+# package is known here: run-name can read inputs but not job outputs, so the
+# version (read from package.json by prepare) goes in the run summary instead.
+# inputs.package is a fixed choice and run-name is display text, never a shell.
+run-name: "Release ${{ inputs.package }}"
+
 on:
   workflow_dispatch:
     inputs:
