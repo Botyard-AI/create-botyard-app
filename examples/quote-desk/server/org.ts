@@ -14,7 +14,7 @@ export async function listOrgBots(tools: ToolCaller): Promise<BotOption[]> {
     const r = record(await tools.call("list_org_bots", { limit: PAGE, offset }), "list_org_bots")
     const page = items(r, "bots", "list_org_bots", PAGE, (v, p) => {
       const b = record(v, p)
-      return { slug: str(b, "slug", p, 63), name: str(b, "name", p) }
+      return { id: str(b, "id", p, 80), slug: str(b, "slug", p, 63), name: str(b, "name", p) }
     })
     bots.push(...page)
     if (page.length < PAGE || bots.length >= num(r, "total", "list_org_bots")) break

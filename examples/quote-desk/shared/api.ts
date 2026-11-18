@@ -7,6 +7,9 @@
 import {
   noBody,
   parseBotList,
+  parseCreatedBoard,
+  parseHandoffView,
+  parseReviewStatus,
   parseCommentInput,
   parseDecisionInput,
   parseMemberList,
@@ -112,6 +115,9 @@ export const API = {
     method: "PUT" as const,
   },
   bots: get("/api/bots", parseBotList),
+  quoteHandoff: get("/api/quotes/:id/handoff", parseHandoffView),
+  review: get("/api/review", parseReviewStatus),
+  createReviewBoard: action("/api/review/board", parseCreatedBoard),
 } as const satisfies Record<string, Endpoint>
 
 // ---------- path parameters, typed from the path ----------

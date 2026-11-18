@@ -1,8 +1,9 @@
 import { FileSignature, Mail, Pencil } from "lucide-react"
 import { useState } from "react"
-import type { QuoteView, SettingsView } from "../../../shared/types.ts"
+import type { HandoffView, QuoteView, SettingsView } from "../../../shared/types.ts"
 import { ApprovalsPanel } from "@/components/approvals-panel"
 import { CommentBox } from "@/components/comment-box"
+import { HandoffPanel } from "@/components/handoff-panel"
 import { PricingSummary } from "@/components/pricing-summary"
 import { QuoteHistory } from "@/components/quote-history"
 import { StatusBadge } from "@/components/status-badge"
@@ -16,12 +17,16 @@ const tone = { muted: "muted", info: "muted", warning: "warn", success: "ok" } a
 type Props = Readonly<{
   quote: QuoteView
   settings: SettingsView | null
+  /** The reviewer bot's part; null until read. */
+  handoff: HandoffView | null
+  /** For how long a handoff has waited. */
+  now: Date
   onChanged: (quote: QuoteView) => void
   onEdit: (id: string) => void
 }>
 
 /** One quote: where it stands, its numbers, approvals and history. */
-export function QuoteDetail({ quote, settings, onChanged, onEdit }: Props) {
+export function QuoteDetail({ quote, settings, handoff, now, onChanged, onEdit }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -84,6 +89,7 @@ export function QuoteDetail({ quote, settings, onChanged, onEdit }: Props) {
           <p className="whitespace-pre-wrap">{quote.progress.detail}</p>
         )}
       </Notice>
+      {handoff === null ? null : <HandoffPanel handoff={handoff} now={now} />}
       {error === null ? null : (
         <Notice tone="error" role="alert">
           {error}
@@ -130,7 +136,12 @@ export function QuoteDetail({ quote, settings, onChanged, onEdit }: Props) {
           )}
         </div>
         <div className="grid content-start gap-4">
-          <ApprovalsPanel quote={quote} settings={settings} onChanged={onChanged} />
+          <ApprovalsPanel
+            quote={quote}
+            settings={settings}
+            handoff={handoff}
+            onChanged={onChanged}
+          />
           <Panel title="History">
             <div className="grid gap-4 p-4">
               <QuoteHistory events={quote.events} />

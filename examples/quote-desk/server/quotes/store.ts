@@ -1,5 +1,14 @@
-// The desk's files: JSON, each replaced atomically on every change.
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
+// The desk's files: JSON, each replaced atomically (write, then rename).
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import path from "node:path"
 import { parseSettings } from "../../shared/parse.ts"
 import type { DeskSettings } from "../../shared/types.ts"
@@ -11,7 +20,7 @@ import { parseDeskState } from "./parse.ts"
  * file exists but cannot be read or parsed: the app refuses to start rather
  * than silently replace someone's data with defaults.
  */
-function readJson<T>(file: string, parse: (value: unknown) => T): T | null {
+export function readJson<T>(file: string, parse: (value: unknown) => T): T | null {
   let text: string
   try {
     text = readFileSync(file, "utf8")
@@ -23,16 +32,55 @@ function readJson<T>(file: string, parse: (value: unknown) => T): T | null {
   return parse(json)
 }
 
-/** Writes a temporary file, then renames it over the old one. Leaves no temporary file. */
-function writeJson(file: string, value: unknown): void {
-  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+/** Flushes a file or directory to disk. */
+export function syncPath(p: string): void {
+  const fd = openSync(p, "r")
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/**
+ * Creates the data directory if needed and syncs it and its parent, so the
+ * directory itself survives a power cut. Run once at startup, every time:
+ * a sync that failed on an earlier run is tried again here. Throws when it
+ * fails; the app then refuses to start. The parent must already exist.
+ */
+export function prepareDataDir(dir: string, sync = syncPath): void {
+  try {
+    mkdirSync(dir, { mode: 0o700 })
+  } catch (err) {
+    if (!(err instanceof Error && "code" in err && err.code === "EEXIST")) throw err
+  }
+  sync(dir)
+  sync(path.dirname(dir))
+}
+
+/**
+ * Writes a temporary file, syncs it, then renames it over the old one. The
+ * rename is the commit: once it is done the new state is the state, and
+ * writeJson returns normally. Syncing the directory afterwards makes the
+ * rename survive a power cut. Returns whether that worked: false means
+ * written, but a power cut could still undo it. Leaves no temporary file.
+ * The directory must exist (see prepareDataDir).
+ */
+export function writeJson(file: string, value: unknown, sync = syncPath): boolean {
   const tmp = `${file}.${String(process.pid)}.tmp`
   try {
     writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
+    sync(tmp)
     renameSync(tmp, file)
   } catch (err) {
     rmSync(tmp, { force: true })
     throw err
+  }
+  try {
+    sync(path.dirname(file))
+    return true
+  } catch {
+    return false // written, not proven durable: see above
   }
 }
 

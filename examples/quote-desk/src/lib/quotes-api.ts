@@ -5,7 +5,7 @@
 import { API, type Endpoint, type PathParams, type Query } from "../../shared/api.ts"
 import type { DeepReadonly } from "../../shared/narrow.ts"
 import { isRecord } from "../../shared/narrow.ts"
-import type { Decision, DeskSettings, HumanRole, QuoteInput } from "../../shared/types.ts"
+import type { ApproverRole, Decision, DeskSettings, QuoteInput } from "../../shared/types.ts"
 
 /** The API refused a request; `message` is its explanation, for the person. */
 export class ApiError extends Error {
@@ -109,7 +109,7 @@ export const getQuarter = (quarter: string | null, signal?: AbortSignal) =>
 
 export const resetDemo = () => call(API.reset, NONE)
 
-export const decide = (id: string, role: HumanRole, decision: Decision, note: string) =>
+export const decide = (id: string, role: ApproverRole, decision: Decision, note: string) =>
   call(API.decideQuote, { ...NONE, params: { id }, body: { role, decision, note } })
 
 export const addComment = (id: string, text: string) =>
@@ -122,3 +122,13 @@ export const saveSettings = (settings: DeskSettings) =>
 
 export const listBots = async (signal?: AbortSignal) =>
   (await call(API.bots, { ...NONE, signal })).bots
+
+/** Where the reviewer bot's part of a quote stands. */
+export const getHandoff = async (id: string, signal?: AbortSignal) =>
+  (await call(API.quoteHandoff, { ...NONE, params: { id }, signal })).handoff
+
+/** Whether the reviewer handoff can run, and the boards to pick from. */
+export const getReviewStatus = (signal?: AbortSignal) => call(API.review, { ...NONE, signal })
+
+/** Creates the review board and makes it the setting; returns the saved settings. */
+export const createReviewBoard = () => call(API.createReviewBoard, NONE)

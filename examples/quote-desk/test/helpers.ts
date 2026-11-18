@@ -6,6 +6,8 @@ import { createRuntime, loadMockFixtures, type MockHandler, type Runtime } from 
 import { afterEach } from "vitest"
 import { createApp, type AppOptions } from "../server/app.ts"
 import { MEMBER_CACHE } from "../server/members.ts"
+import { HandoffStore } from "../server/review/handoffs.ts"
+import { ReviewRelay } from "../server/review/relay.ts"
 import { CRM_SEED } from "../server/quotes/crm-seed.ts"
 import { QuoteDesk } from "../server/quotes/desk.ts"
 import { SettingsStore } from "../server/quotes/settings.ts"
@@ -56,11 +58,19 @@ export async function startApp(
     env: {},
     members: options.members ?? MEMBER_CACHE,
   })
+  const desk = options.desk ?? memoryDesk()
+  const settings = options.settings ?? new SettingsStore()
+  const fileHosts = options.fileHosts ?? new Set<string>()
+  const relay =
+    options.relay ??
+    new ReviewRelay({ desk, settings, handoffs: new HandoffStore(), tools, fileHosts })
   const handler = createApp({
     botpage,
     tools,
-    desk: options.desk ?? memoryDesk(),
-    settings: options.settings ?? new SettingsStore(),
+    desk,
+    settings,
+    relay,
+    fileHosts,
     ...(options.staticFiles && { staticFiles: options.staticFiles }),
     ...(options.ui && { ui: options.ui }),
   })

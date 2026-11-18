@@ -47,6 +47,115 @@ service and expose it with `--persistent`.
 - **`test/`** runs the API against `@botyard/runtime`'s mock transport, with
   the same fixtures as `dev:mock`.
 
+## The reviewer bot
+
+Each quote in finance review has two steps: the reviewer bot's and a finance
+approver's. The reviewer bot only **advises**. The app hands it a task on a
+workforce board, reads its recommendation back and shows it on the quote. A
+finance approver records the reviewer step, confirming the recommendation or
+deciding otherwise. Nothing the bot writes decides a quote by itself.
+
+**Setting it up (Settings, owners and admins).**
+
+1. Pick the reviewer bot.
+2. Pick a review board. The board needs the columns `review`, `approved` and
+   `changes-requested`. With the `create_workforce` tool assigned to this
+   bot, **Create review board** makes one. Without it, Settings says so, and
+   you pick a board this bot is already on.
+3. The reviewer bot must be a member of the board. No tool adds another bot to
+   a board, so the reviewer joins it itself (`join_workforce`). Until it does,
+   the quote page says who to ask, with the request to copy. No other bot
+   may be on the board: any bot on it could answer for the reviewer.
+4. Optional: a **handoff thread**, the id of a conversation of this bot's. When
+   it is set, each handoff also nudges the reviewer bot there
+   (`send_message_to_bot`). When it is not, nothing is sent.
+5. Set `QUOTE_DESK_FILE_HOSTS` to the host names the platform's file download
+   links use, comma-separated. The app reads `verdict.json` only from these.
+
+**What happens to a quote.** Every 10 seconds the app checks the quotes
+waiting for the reviewer bot:
+
+- It checks the board, its columns and the reviewer's membership before every
+  handoff, then creates a task in `review`, assigned to the reviewer bot. The
+  task holds the brief: the lines, margin against the floor, terms, the
+  customer's credit and the territory budget.
+- It reads the task with `get_task`, at first after 15 seconds, then less
+  often, up to every 5 minutes. Only quotes in finance review are checked.
+- When the task is in `approved` or `changes-requested`, the app reads
+  `verdict.json` from it and shows it on the quote as the reviewer bot's
+  recommendation. The task is not read again after that.
+- The task is created only once per submission. The app saves its intent
+  first. If it stops between the create and saving the task (a crash, a full
+  disk), it never creates the task again: the quote goes to people, and the
+  page says to check the board for the task. The task is created only once its
+  intent is synced to disk; if syncing fails, the app tries again on the next
+  pass. The data directory is created and synced at startup, and the app
+  refuses to start if that fails. This relies on the disk keeping what it
+  reports as synced.
+- Quote and settings saves are atomic (write, then rename), not
+  power-cut-proof. Only the review-handoff intent waits for durability before
+  acting.
+
+The quote page shows the task, its column, and how long it has waited.
+
+**When no recommendation is coming.** If the board isn't set, isn't there,
+lacks a column, the reviewer isn't on it or another bot is, the task
+disappears, the reviewer in Settings changes mid-review, or the verdict can't
+be read or isn't the reviewer's, the page says why and since when. A finance
+approver records the reviewer step without a recommendation; they can do so
+at any time anyway. Nothing else stops working.
+
+**The reviewer bot's side.** The reviewer needs `list_my_tasks`, `get_task`,
+`update_task`, `upload_task_files` and `join_workforce`. Being assigned a task
+does not wake a bot, so give the reviewer a schedule, for example every 15
+minutes:
+
+> Check `list_my_tasks` for tasks tagged `quote-desk` in the Review column.
+> For each, follow the "How to answer" steps in its description.
+
+Its answer, attached to the task as `verdict.json` before it moves the task:
+
+```json
+{
+  "quote_id": "Q-2026-0201",
+  "decision": "approve",
+  "note": "One or two sentences for the approval card.",
+  "analysis": "Optional: a longer analysis for the quote history."
+}
+```
+
+`decision` is `approve` with the Approved column and `reject` with Changes
+requested. Any other field, a mismatched decision or quote, or an empty note
+sends the quote to people instead.
+
+**Reading `verdict.json`.** The download link is presigned: it is a credential.
+The app never logs it, stores it or shows it. It reads the link only over
+https, from a host in `QUOTE_DESK_FILE_HOSTS`, with no redirects. The file may
+be at most 16 KiB and must arrive within 10 seconds. Errors say which host
+failed, never the link.
+
+**Whose verdict it is.** Only the reviewer the task was assigned to can
+answer it. The app checks three things:
+
+- The platform must attribute `verdict.json` to that reviewer bot.
+- The bytes the app reads must match the SHA-256 the platform lists for the
+  file.
+- No other bot may be on the board.
+
+The recommendation is shown under that reviewer's name, even if Settings has
+changed since.
+
+**Why it's only advice.** Two things are out of the app's reach:
+
+- New boards are open to the whole org, and the app can't check or change
+  that.
+- When a file is overwritten, the platform keeps the first uploader's name.
+
+So anyone who can write to the board's tasks could replace the reviewer's
+`verdict.json` and still have it read as the reviewer's. That is why a person
+confirms every recommendation. Keep the review board restricted to the
+reviewer and this bot all the same.
+
 ## Security notes
 
 - **Dependencies.** `package-lock.json` pins every package, including

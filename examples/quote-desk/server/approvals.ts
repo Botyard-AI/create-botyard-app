@@ -19,6 +19,7 @@ import { listOrgBots } from "./org.ts"
 import type { QuoteDesk } from "./quotes/desk.ts"
 import { ROLE_LABEL } from "./quotes/desk.ts"
 import type { SettingsStore } from "./quotes/settings.ts"
+import { checkReviewSettings } from "./review/routes.ts"
 import { displayName } from "./routes.ts"
 
 /** Org roles that may change who approves. */
@@ -38,6 +39,7 @@ async function checkSettings(next: DeskSettings, { botpage, tools }: ApprovalDep
     if (!bots.some((b) => b.slug === next.reviewer_bot))
       throw new HttpError(400, `${next.reviewer_bot} is not a bot in this org`)
   }
+  await checkReviewSettings(next, tools)
   for (const role of HUMAN_ROLES) {
     for (const userId of next.approvers[role]) {
       const found = await botpage.members.lookup(userId)
@@ -81,9 +83,18 @@ export function approvalRoutes(deps: ApprovalDeps): Route[] {
       prepare: nothing,
       // Roles are read from the settings for the fresh viewer, by user id.
       apply: ({ body: { role, decision, note }, member, param }) => {
-        if (!settings.rolesOf(member.userId).includes(role))
-          throw new HttpError(403, `You are not a ${ROLE_LABEL[role].toLowerCase()} approver`)
-        return desk.decide(param("id"), role, decision, note, displayName(member))
+        const mine = settings.rolesOf(member.userId)
+        const id = param("id")
+        if (role !== "bot_review") {
+          if (!mine.includes(role))
+            throw new HttpError(403, `You are not a ${ROLE_LABEL[role].toLowerCase()} approver`)
+          return desk.decide(id, role, decision, note, displayName(member))
+        }
+        // The reviewer bot only advises: a finance approver records its step,
+        // confirming its recommendation or deciding without one.
+        if (!mine.includes("finance"))
+          throw new HttpError(403, "Only finance approvers record the reviewer bot's step")
+        return desk.decide(id, role, decision, note, `${displayName(member)}, for the reviewer bot`)
       },
     }),
     change(deps, API.commentQuote, {
