@@ -19,7 +19,6 @@ export default tseslint.config(
     // components per file; keep them as upstream writes them.
     files: ["src/components/ui/**"],
     rules: {
-      "react/no-multi-comp": "off",
       "react-refresh/only-export-components": "off",
     },
   }

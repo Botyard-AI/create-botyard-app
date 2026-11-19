@@ -1,11 +1,13 @@
-// Copied verbatim from Botyard-AI/botyard packages/eslint-config/react.js,
-// read at main fa57165119aef36714849776811eb843f11dc3a2 (the file was last
-// changed in cda41f6069ce6e97a0fe20e8c6cd9c459772ab9a). Do not edit it here:
-// change the monorepo, then re-sync as README.md describes. Rules local to
-// this repository live in the other files here (zero-any.js, javascript.js).
+// Copied from Botyard-AI/botyard packages/eslint-config/react.js, read at main
+// fa57165119aef36714849776811eb843f11dc3a2 (the file was last changed in
+// cda41f6069ce6e97a0fe20e8c6cd9c459772ab9a), then moved to ESLint 10 ahead of
+// the monorepo (task 5834): eslint-plugin-react, which does not support
+// ESLint 10, and its one rule, react/no-multi-comp, are removed. The monorepo
+// takes the same change next; re-sync from it then, as README.md describes.
+// Do not edit it here otherwise. Rules local to this repository live in the
+// other files here (zero-any.js, javascript.js).
 
 import globals from "globals"
-import reactPlugin from "eslint-plugin-react"
 import reactHooks from "eslint-plugin-react-hooks"
 import reactRefresh from "eslint-plugin-react-refresh"
 import tseslint from "typescript-eslint"
@@ -26,11 +28,7 @@ export const reactConfig = [
     languageOptions: {
       globals: globals.browser,
     },
-    settings: {
-      react: { version: "detect" },
-    },
     plugins: {
-      react: reactPlugin,
       "react-hooks": reactHooks,
       "react-refresh": reactRefresh,
     },
@@ -39,7 +37,6 @@ export const reactConfig = [
       ...reactHooks.configs.recommended.rules,
       "react-hooks/exhaustive-deps": "error",
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
-      "react/no-multi-comp": ["error", { ignoreStateless: false }],
 
       // SonarJS React-specific
       "sonarjs/no-hook-setter-in-body": "error",

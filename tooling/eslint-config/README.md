@@ -1,6 +1,6 @@
 # @botyard/eslint-config (private)
 
-ESLint 9 flat configs for this repository and for the templates that
+ESLint 10 flat configs for this repository and for the templates that
 `create-botyard-app` generates. It is a private workspace package: nothing here
 is published.
 
@@ -8,7 +8,7 @@ is published.
 | -------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `./base`       | Monorepo copy                | js recommended, typescript-eslint strict + stylistic, core rules, SonarJS cherry-picks, eslint-config-prettier.                                                                 |
 | `./node`       | Monorepo copy                | `base` plus Node globals.                                                                                                                                                       |
-| `./react`      | Monorepo copy                | `base` plus React, hooks, Fast Refresh and browser globals. Unused today; it is here for the templates.                                                                         |
+| `./react`      | Monorepo copy (ahead: see below) | `base` plus React hooks, Fast Refresh and browser globals. Unused today; it is here for the templates.                                                                         |
 | `./zero-any`   | Local                        | The code-review "no `any`" gate, including any laundered through type escapes: the type-aware `no-unsafe-*` rules, unsafe and unnecessary assertions, unnecessary conditions and exhaustive `switch`. Takes the package directory. |
 | `./javascript` | Local                        | ESLint recommended rules and Node globals for plain `.js`/`.mjs` files, which the monorepo configs do not lint.                                                                |
 
@@ -57,3 +57,8 @@ commit they were read at. Prettier skips them so they stay identical.
    `packages/eslint-config/package.json`, within this repository's 3-day
    `minimumReleaseAge`.
 4. Run `pnpm run lint` and fix what the new rules find.
+
+`react.js` is ahead of the monorepo for now. It moved to ESLint 10 first and
+drops `eslint-plugin-react` (no ESLint 10 support) and its only rule,
+`react/no-multi-comp` (task 5834). Re-sync it once the monorepo takes the same
+change.

@@ -93,26 +93,24 @@ export type LivePricing =
 /** Prices the draft as it is typed (debounced), through POST /api/preview. */
 export function useLivePricing(draft: Draft): LivePricing {
   const input = useMemo(() => toInput(draft), [draft])
-  const [live, setLive] = useState<LivePricing>({ state: "empty" })
+  // The last answer from the server, kept with the input it priced. The other
+  // states are worked out from the input below, not set from the effect.
+  const [result, setResult] = useState<{
+    readonly input: QuoteInput
+    readonly live: LivePricing
+  } | null>(null)
   useEffect(() => {
-    if (typeof input === "string") {
-      setLive({ state: "error", message: input })
-      return undefined
-    }
-    if (input.lines.length === 0) {
-      setLive({ state: "empty" })
-      return undefined
-    }
-    setLive((prev) => (prev.state === "ready" ? prev : { state: "loading" }))
+    if (typeof input === "string" || input.lines.length === 0) return undefined
     const controller = new AbortController()
     const timer = setTimeout(() => {
       preview(input, controller.signal)
         .then((pricing) => {
-          setLive({ state: "ready", pricing })
+          setResult({ input, live: { state: "ready", pricing } })
         })
         .catch((err: unknown) => {
           if (controller.signal.aborted) return
-          setLive({ state: "error", message: err instanceof Error ? err.message : String(err) })
+          const message = err instanceof Error ? err.message : String(err)
+          setResult({ input, live: { state: "error", message } })
         })
     }, 200)
     return () => {
@@ -120,5 +118,9 @@ export function useLivePricing(draft: Draft): LivePricing {
       controller.abort()
     }
   }, [input])
-  return live
+  if (typeof input === "string") return { state: "error", message: input }
+  if (input.lines.length === 0) return { state: "empty" }
+  if (result?.input === input) return result.live
+  // Keep showing the last prices while the new ones load.
+  return result?.live.state === "ready" ? result.live : { state: "loading" }
 }
