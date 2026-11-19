@@ -22,6 +22,11 @@ Packages are released separately. A release section is headed
 
 ### Changed
 
+- `create-botyard-app`: the next steps it prints install with
+  `npm ci --include=dev`, so the test and build tools are installed even where
+  `NODE_ENV=production`, as inside a Botyard bot. They also show how to run the
+  app on your machine (`npm run dev:mock`) and inside a bot (`npm run dev`,
+  then `npm run expose` from a second shell).
 - `@botyard/botpage`: exported object types are declared with `type` instead
   of `interface`, as the Botyard TypeScript standard requires. Nothing changes
   at runtime, and the emitted JavaScript is the same. For TypeScript users,
