@@ -4,7 +4,7 @@ import { test } from "node:test"
 
 import { readmeProblems } from "./readme-rules.mjs"
 
-const SHA = "f52b7e38493a4218d32789d0d08060c47edee504"
+const SHA = "a516c25401316d616bc1a3209026a39539bf2427"
 const ICON = `https://raw.githubusercontent.com/Botyard-AI/create-botyard-app/${SHA}/assets/brand/botyard-app-icon-navy.svg`
 const HEADER = `<p align="center">\n  <a href="https://botyard.io"><img src="${ICON}" alt="Botyard" width="96"></a>\n</p>\n\n`
 const BADGES = `<p align="center">\n  <a href="https://www.npmjs.com/package/x"><img src="https://img.shields.io/npm/v/x" alt="npm"></a>\n</p>\n`
@@ -153,5 +153,12 @@ test("entities in a src are decoded before the URL is checked", () => {
   assert.deepEqual(
     readmeProblems(valid('\n<img src="https://img.shields.io/x?a=1&amp;b=2">\n')),
     []
+  )
+})
+
+test("the header icon must be the brand asset itself, not a copy deeper in the tree", () => {
+  fails(
+    valid().replace(`${SHA}/assets/brand/`, `${SHA}/examples/x/assets/brand/`),
+    /header image before its first heading/
   )
 })

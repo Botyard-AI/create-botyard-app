@@ -98,7 +98,11 @@ export function readmeProblems(text) {
   } else {
     const hasIcon = [...html.slice(0, heading).matchAll(/<img\b([^>]*)>/gi)].some((m) => {
       const url = httpsUrl(attributes(m[1]).get("src") ?? "")
-      return url !== null && isPinnedRepoImage(url) && url.pathname.endsWith(HEADER_ICON)
+      return (
+        url !== null &&
+        isPinnedRepoImage(url) &&
+        url.pathname.replace(PINNED_PATH, "/") === HEADER_ICON
+      )
     })
     if (!hasIcon) add(`has no pinned ${HEADER_ICON} header image before its first heading`)
   }

@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://botyard.io"><img src="https://raw.githubusercontent.com/Botyard-AI/create-botyard-app/f52b7e38493a4218d32789d0d08060c47edee504/assets/brand/botyard-app-icon-navy.svg" alt="Botyard" width="96"></a>
+  <a href="https://botyard.io"><img src="https://raw.githubusercontent.com/Botyard-AI/create-botyard-app/a516c25401316d616bc1a3209026a39539bf2427/assets/brand/botyard-app-icon-navy.svg" alt="Botyard" width="96"></a>
 </p>
 
 # create-botyard-app
