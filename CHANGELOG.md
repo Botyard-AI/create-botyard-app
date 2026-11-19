@@ -54,6 +54,12 @@ Packages are released separately. A release section is headed
   at runtime, and the emitted JavaScript is the same. For TypeScript users,
   these types can no longer be extended through declaration merging.
 
+### Security
+
+- `create-botyard-app`: the generated app pins `minimatch` 11.0.1 for
+  typescript-eslint and eslint-plugin-sonarjs through an `overrides` entry,
+  clearing GHSA-g3hv-75wg-m249 (moderate; development tools only).
+
 ## [create-botyard-app@0.1.0] - 2026-11-17
 
 ### Added

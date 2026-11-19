@@ -87,9 +87,20 @@ for (const field of ["dependencies", "devDependencies", "optionalDependencies", 
 fs.writeFileSync(path.join(work, "package.json"), JSON.stringify(pkg, null, 2) + "\n")
 fs.writeFileSync(path.join(work, "own.txt"), own.join("\n"))
 EOF
-(cd "$work" && NODE_ENV=development npm install --package-lock-only --ignore-scripts \
-  --no-audit --no-fund --before="$before")
-cp "$work/package-lock.json" "$work/step1.json"
+# npm can apply an "overrides" entry only on a second pass over an existing
+# lockfile (seen with minimatch's range override), so resolve until the
+# lockfile stops changing. Three passes is plenty; more means it never settles.
+settled=""
+for pass in 1 2 3; do
+  (cd "$work" && NODE_ENV=development npm install --package-lock-only --ignore-scripts \
+    --no-audit --no-fund --before="$before")
+  if [ -f "$work/step1.json" ] && cmp -s "$work/package-lock.json" "$work/step1.json"; then
+    settled=yes
+    break
+  fi
+  cp "$work/package-lock.json" "$work/step1.json"
+done
+[ -n "$settled" ] || { echo "the lockfile did not settle after $pass passes" >&2; exit 1; }
 
 # Step 2: add our own packages at their versions, keeping everything else.
 if [ -s "$work/own.txt" ]; then
