@@ -9,6 +9,7 @@
 //   images from this repository must be pinned to a commit;
 // - <picture>, <source>, srcset and an <img> without a src are rejected:
 //   npm strips the first three, and the last cannot be checked;
+// - HTML comments are rejected, outside code;
 // - the pinned app-icon header must render before the first heading,
 //   whatever badges follow it.
 
@@ -75,8 +76,12 @@ function destinationProblem(value, what) {
 export function readmeProblems(text) {
   const problems = []
   const add = (problem) => problem && problems.push(problem)
-  const html = marked.parse(text, { gfm: true, async: false }).replace(/<!--[\s\S]*?-->/g, "")
+  const html = marked.parse(text, { gfm: true, async: false })
 
+  // Rejected rather than stripped: HTML ends a comment in more ways than a
+  // pattern can follow (`<!-->` and `<!--->` are complete, empty comments), so
+  // stripping could hide markup that npm then renders.
+  if (html.includes("<!--")) add("contains an HTML comment; remove it")
   if (/<(picture|source)\b/i.test(html)) add("uses <picture>/<source>, which npm strips")
 
   for (const m of html.matchAll(/<(img|a)\b([^>]*)>/gi)) {

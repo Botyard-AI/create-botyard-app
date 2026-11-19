@@ -162,3 +162,18 @@ test("the header icon must be the brand asset itself, not a copy deeper in the t
     /header image before its first heading/
   )
 })
+
+test("an HTML comment is rejected, so it cannot hide markup from the check", () => {
+  fails(valid("\n<!-- note -->\n"), /HTML comment/)
+  // `<!-->` and `<!--->` are complete, empty comments in HTML; what follows them renders.
+  fails(valid('\n<!--> <img src="./x.png"> <!-- -->\n'), /HTML comment/)
+  fails(valid('\n<!---> <img src="./x.png"> <!-- -->\n'), /HTML comment/)
+  fails(valid('\n<!--> <img src="./x.png"> <!-- -->\n'), /image is not an absolute https URL/)
+})
+
+test("a comment inside code is only text, and is fine", () => {
+  assert.deepEqual(
+    readmeProblems(valid("\n```html\n<!-- example -->\n```\n\nInline `<!-- x -->` too.\n")),
+    []
+  )
+})
