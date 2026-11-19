@@ -19,6 +19,13 @@ Packages are released separately. A release section is headed
   config in `tooling/eslint-config` and a type-aware zero-`any` layer, Prettier,
   Vitest 4, knip, TypeScript 5.9.3 and a shared `tsconfig.base.json`. CI runs
   lint, format check, typecheck, test, build and knip.
+- Release checks: every published package's README must be in its tarball.
+  Rendered as Markdown, it must start with the pinned Botyard header image,
+  use only absolute https links and images, pin images from this repository
+  to a commit, and avoid `<picture>`, which npm strips. `pnpm run lint` and
+  the release workflow run them.
+- GitHub releases get a branded header and footer around the changelog
+  section, with install, provenance and docs links.
 
 ### Changed
 
@@ -27,6 +34,21 @@ Packages are released separately. A release section is headed
   `NODE_ENV=production`, as inside a Botyard bot. They also show how to run the
   app on your machine (`npm run dev:mock`) and inside a bot (`npm run dev`,
   then `npm run expose` from a second shell).
+- `create-botyard-app`: branded README on npm, with the Botyard logo, badges,
+  and links to the source, changelog and Botyard docs.
+- `@botyard/runtime`: branded README on npm, with the Botyard logo, badges,
+  and links to the source, changelog and Botyard docs.
+- `@botyard/botpage`: branded README on npm, with the Botyard logo, badges,
+  and links to the source, changelog and Botyard docs.
+- `create-botyard-app`: the quick start in this README and in the generated
+  app's README installs with `npm ci --include=dev`, so the test and build
+  tools are installed even where `NODE_ENV=production`, as inside a bot. It
+  also runs `dev` and `expose` in separate shells, and the generated app's
+  README gets a Troubleshooting section.
+- `@botyard/runtime`: the README documents `defaultRuntime()`.
+- `@botyard/botpage`: the README no longer says deep links are unusable.
+  `list_navigation_destinations` now returns route templates, so
+  `deeplinks.resolve()` builds links.
 - `@botyard/botpage`: exported object types are declared with `type` instead
   of `interface`, as the Botyard TypeScript standard requires. Nothing changes
   at runtime, and the emitted JavaScript is the same. For TypeScript users,

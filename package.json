@@ -8,11 +8,12 @@
     "node": ">=22"
   },
   "scripts": {
-    "lint": "eslint --max-warnings 0 . && pnpm run build:sdk && pnpm -r --if-present run lint",
+    "lint": "eslint --max-warnings 0 . && pnpm run check:readmes && pnpm run build:sdk && pnpm -r --if-present run lint",
+    "check:readmes": "node scripts/release/check-readmes.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc -p tsconfig.json --noEmit && pnpm run build:sdk && pnpm -r --if-present run typecheck",
-    "test": "vitest run && pnpm run build:sdk && pnpm --filter \"./templates/*\" run test",
+    "test": "vitest run && node --test scripts/release/readme-rules.test.mjs && pnpm run build:sdk && pnpm --filter \"./templates/*\" run test",
     "test:coverage": "vitest run --coverage",
     "build": "pnpm -r --if-present run build",
     "build:sdk": "pnpm --filter @botyard/runtime --filter @botyard/botpage run build",
@@ -24,6 +25,7 @@
     "@vitest/coverage-v8": "^4.1.12",
     "eslint": "^9.39.5",
     "knip": "^5.88.1",
+    "marked": "18.2.0",
     "prettier": "^3.10.1",
     "typescript": "5.9.3",
     "vitest": "^4.1.12"

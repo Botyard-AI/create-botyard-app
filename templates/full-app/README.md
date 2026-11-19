@@ -5,13 +5,25 @@ served to your org as a Bot Page: a Node API and a React UI on one port,
 behind Botyard sign-in.
 
 ```sh
-npm ci           # installs exactly what package-lock.json pins
+npm ci --include=dev   # exactly what package-lock.json pins, test and build tools included
 npm test
-npm run dev        # inside a bot: API + UI with hot reload on 127.0.0.1:8787
-npm run expose     # publish it as a Bot Page and print the URL
 ```
 
-Node 22.18 or newer: the server is TypeScript that Node runs directly.
+Outside a bot, `npm run dev:mock` serves the app against fixture data. Inside
+a bot, start it with hot reload on 127.0.0.1:8787:
+
+```sh
+npm run dev
+```
+
+Then, from a second shell in this directory while it runs, publish it as a
+Bot Page and print its URL:
+
+```sh
+npm run expose
+```
+
+Node 22 (22.18 or later) or Node 24: the server is TypeScript that Node runs directly.
 
 ## Scripts
 
@@ -60,3 +72,18 @@ service and expose it with `--persistent`.
 - Use `requireMember` on every route that returns org data.
 - `BOTYARD_DEV_VIEWER` (used by `dev:mock`) is refused when
   `NODE_ENV=production` and ignored unless the server listens on loopback.
+
+## Troubleshooting
+
+**`vitest: not found`, `vite: not found` or `tsc: not found` after
+installing.** `NODE_ENV=production` is set in your shell; Botyard bot
+runtimes set it. With it, npm skips devDependencies, which hold the test,
+build and lint tools. Install them anyway:
+
+```sh
+npm ci --include=dev
+```
+
+The scripts set `NODE_ENV` themselves (`dev` and `dev:mock` to
+`development`, `start` to `production`), so you only need `--include=dev`
+when installing.

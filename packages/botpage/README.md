@@ -1,7 +1,17 @@
+<p align="center">
+  <a href="https://botyard.io"><img src="https://raw.githubusercontent.com/Botyard-AI/create-botyard-app/a516c25401316d616bc1a3209026a39539bf2427/assets/brand/botyard-app-icon-navy.svg" alt="Botyard" width="96"></a>
+</p>
+
 # @botyard/botpage
 
 Viewer identity, membership guards and deep links for web apps served as
 [Botyard](https://botyard.io) Bot Pages.
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@botyard/botpage"><img src="https://img.shields.io/npm/v/%40botyard%2Fbotpage?color=d4622b" alt="npm version"></a>
+  <a href="https://docs.npmjs.com/generating-provenance-statements"><img src="https://img.shields.io/badge/npm-provenance-4a5c6a" alt="Published with npm provenance"></a>
+  <a href="https://github.com/Botyard-AI/create-botyard-app/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/%40botyard%2Fbotpage?color=4a5c6a" alt="License: Apache-2.0"></a>
+</p>
 
 A Bot Page is a web server inside your bot that Botyard publishes at
 `https://<slug>.botyard.tech` behind sign-in. This package answers "who is
@@ -150,11 +160,10 @@ Keys and their required params come from the platform's navigation directory
 org comes from `get_identity`. Params must match the destination's
 `required_params` exactly.
 
-> **Not usable yet:** `list_navigation_destinations` does not return route
-> templates (`path`, `search`) yet; a Botyard platform change is adding them.
-> Until it ships, `resolve()` throws `DeeplinkUnavailableError` for every key.
-> Catch it and leave the link out. Once the platform change lands, links
-> start working with no upgrade of this package.
+The directory returns each destination's route template (`path`, `search`),
+and `resolve()` fills it in. If a known destination has no route template, or
+one of an unsupported shape, `resolve()` throws `DeeplinkUnavailableError`
+rather than guess a URL: catch it and leave the link out.
 
 Errors: `UnknownDestinationError`, `DeeplinkParamsError`,
 `DeeplinkUnavailableError` (all extend `DeeplinkError`), and
@@ -224,6 +233,13 @@ import { createBotPage } from "@botyard/botpage";
 
 const botpage = createBotPage({ tools: defaultRuntime() });
 ```
+
+## Links
+
+- [Source](https://github.com/Botyard-AI/create-botyard-app/tree/main/packages/botpage) and [changelog](https://github.com/Botyard-AI/create-botyard-app/blob/main/CHANGELOG.md)
+- [Report an issue](https://github.com/Botyard-AI/create-botyard-app/issues). Security reports go privately, see [SECURITY.md](https://github.com/Botyard-AI/create-botyard-app/blob/main/SECURITY.md).
+- [Bot Pages](https://botyard.io/features/bot-pages) and [Hosting apps](https://docs.botyard.io/docs/hosting-apps) in the Botyard docs
+- [botyard.io](https://botyard.io)
 
 ## License
 
