@@ -136,6 +136,9 @@ export default function App() {
         ) : null}
         {meta.state === "ready" && route.tab === "build" ? (
           <BuildPage
+            // A fresh builder for each draft (or a new quote), so nothing from
+            // the last one carries over.
+            key={route.quoteId ?? "new"}
             meta={meta.meta}
             viewerEmail={viewerEmail}
             quoteId={route.quoteId}

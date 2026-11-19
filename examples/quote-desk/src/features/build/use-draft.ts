@@ -90,29 +90,40 @@ export type LivePricing =
   | { readonly state: "error"; readonly message: string }
   | { readonly state: "ready"; readonly pricing: Pricing }
 
+/** The server's last answer, with the input it priced. */
+export type PricingResult = Readonly<{ input: QuoteInput; live: LivePricing }>
+
+/** What to show for `input`, given the server's last answer. */
+export function shownPricing(input: QuoteInput | string, last: PricingResult | null): LivePricing {
+  if (typeof input === "string") return { state: "error", message: input }
+  if (input.lines.length === 0) return { state: "empty" }
+  if (last?.input === input) return last.live
+  // Keep showing the last prices while the new ones load.
+  return last?.live.state === "ready" ? last.live : { state: "loading" }
+}
+
 /** Prices the draft as it is typed (debounced), through POST /api/preview. */
 export function useLivePricing(draft: Draft): LivePricing {
   const input = useMemo(() => toInput(draft), [draft])
-  const [live, setLive] = useState<LivePricing>({ state: "empty" })
+  const [last, setLast] = useState<PricingResult | null>(null)
+  const blank = typeof input === "string" || input.lines.length === 0
+  // Forget the last prices once the draft is empty or invalid, so a refilled
+  // cart shows "loading" rather than old totals. This is React's pattern for
+  // adjusting state when an input changes (react.dev: "You Might Not Need an
+  // Effect"); the effect below only ever sets state when the server answers.
+  if (blank && last !== null) setLast(null)
   useEffect(() => {
-    if (typeof input === "string") {
-      setLive({ state: "error", message: input })
-      return undefined
-    }
-    if (input.lines.length === 0) {
-      setLive({ state: "empty" })
-      return undefined
-    }
-    setLive((prev) => (prev.state === "ready" ? prev : { state: "loading" }))
+    if (typeof input === "string" || input.lines.length === 0) return undefined
     const controller = new AbortController()
     const timer = setTimeout(() => {
       preview(input, controller.signal)
         .then((pricing) => {
-          setLive({ state: "ready", pricing })
+          setLast({ input, live: { state: "ready", pricing } })
         })
         .catch((err: unknown) => {
           if (controller.signal.aborted) return
-          setLive({ state: "error", message: err instanceof Error ? err.message : String(err) })
+          const message = err instanceof Error ? err.message : String(err)
+          setLast({ input, live: { state: "error", message } })
         })
     }, 200)
     return () => {
@@ -120,5 +131,5 @@ export function useLivePricing(draft: Draft): LivePricing {
       controller.abort()
     }
   }, [input])
-  return live
+  return shownPricing(input, last)
 }

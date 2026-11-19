@@ -24,7 +24,7 @@
   },
   "devDependencies": {
     "@botyard/eslint-config": "workspace:*",
-    "eslint": "^9.39.5",
+    "eslint": "^10.15.0",
     "vitest": "^4.1.12"
   }
 }

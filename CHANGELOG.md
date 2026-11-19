@@ -29,6 +29,12 @@ Packages are released separately. A release section is headed
 
 ### Changed
 
+- Tooling and the `full-app` template: ESLint 10 replaces ESLint 9, which is
+  end of life, so generated apps install without its deprecation warning.
+  `@eslint/js` 10.0.1, `eslint-plugin-react-hooks` 7.1.1 (which adds the React
+  Compiler rules to `recommended`). `eslint-plugin-react` is removed: it does
+  not support ESLint 10. Its one rule, `react/no-multi-comp` (one component
+  per file), goes with it.
 - `create-botyard-app`: the next steps it prints install with
   `npm ci --include=dev`, so the test and build tools are installed even where
   `NODE_ENV=production`, as inside a Botyard bot. They also show how to run the

@@ -15,23 +15,20 @@ type Props = Readonly<{
 
 /** The builder, with the draft loaded first when one is being edited. */
 export function BuildPage({ meta, viewerEmail, quoteId, onSaved, onCancel }: Props) {
-  const [editing, setEditing] = useState<QuoteView | "loading" | Error | null>(
-    quoteId === null ? null : "loading"
-  )
+  // The parent gives each draft its own BuildPage (key={quoteId}), so this
+  // only ever holds the draft named by quoteId.
+  const [loaded, setLoaded] = useState<QuoteView | Error | null>(null)
+  const editing = quoteId === null ? null : (loaded ?? "loading")
   useEffect(() => {
-    if (quoteId === null) {
-      setEditing(null)
-      return undefined
-    }
+    if (quoteId === null) return undefined
     const controller = new AbortController()
-    setEditing("loading")
     getQuote(quoteId, controller.signal)
       .then((q) => {
-        setEditing(q.status === "draft" ? q : new Error(`${q.id} is no longer a draft.`))
+        setLoaded(q.status === "draft" ? q : new Error(`${q.id} is no longer a draft.`))
       })
       .catch((err: unknown) => {
-        if (!controller.signal.aborted)
-          setEditing(err instanceof Error ? err : new Error(String(err)))
+        if (controller.signal.aborted) return
+        setLoaded(err instanceof Error ? err : new Error(String(err)))
       })
     return () => {
       controller.abort()

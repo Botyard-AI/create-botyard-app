@@ -23,7 +23,11 @@ export function QuotesPage({
   onEdit: (id: string) => void
 }>) {
   const [list, setList] = useState<Loaded<readonly QuoteSummary[]>>({ state: "loading" })
-  const [quote, setQuote] = useState<Loaded<QuoteView> | null>(null)
+  // The selected quote as last read, kept with its id. Whether it is still
+  // loading is worked out from `selected` below, not set from the effect.
+  const [loaded, setLoaded] = useState<{ id: string; value: Loaded<QuoteView> } | null>(null)
+  let quote: Loaded<QuoteView> | null = null
+  if (selected !== null) quote = loaded?.id === selected ? loaded.value : { state: "loading" }
   const [tick, setTick] = useState(0)
   // Who may decide what. Without it nobody gets decision buttons; the server checks anyway.
   const [settings, setSettings] = useState<SettingsView | null>(null)
@@ -66,18 +70,15 @@ export function QuotesPage({
   }, [tick])
 
   useEffect(() => {
-    if (selected === null) {
-      setQuote(null)
-      return undefined
-    }
+    if (selected === null) return undefined
     const controller = new AbortController()
-    setQuote((q) => (q?.state === "ready" && q.value.id === selected ? q : { state: "loading" }))
     getQuote(selected, controller.signal)
       .then((value) => {
-        setQuote({ state: "ready", value })
+        setLoaded({ id: selected, value: { state: "ready", value } })
       })
       .catch((err: unknown) => {
-        if (!controller.signal.aborted) setQuote({ state: "error", message: message(err) })
+        if (controller.signal.aborted) return
+        setLoaded({ id: selected, value: { state: "error", message: message(err) } })
       })
     getHandoff(selected, controller.signal)
       .then((value) => {
@@ -125,7 +126,11 @@ export function QuotesPage({
             now={new Date()}
             onEdit={onEdit}
             onChanged={(value) => {
-              setQuote({ state: "ready", value })
+              // Only if it is still the quote on screen: a change that lands
+              // after the user picked another quote must not replace that one.
+              setLoaded((prev) =>
+                prev?.id === value.id ? { id: value.id, value: { state: "ready", value } } : prev
+              )
               setTick((t) => t + 1)
             }}
           />
