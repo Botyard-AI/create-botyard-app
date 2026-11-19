@@ -3,7 +3,8 @@
 // Runs in the read-only `prepare` job of .github/workflows/release.yml.
 //
 // Inputs (environment): PACKAGE (npm name), GITHUB_SHA, GITHUB_OUTPUT,
-// RUNNER_TEMP. Writes outputs: dir, version, tag, dist_tag, published.
+// RUNNER_TEMP, GITHUB_STEP_SUMMARY (optional). Writes outputs: dir, version,
+// tag, dist_tag, published, and a one-line run summary naming the release.
 // Fails, before any side effect, when the release is not safe to make.
 
 import { appendFileSync, readFileSync, readdirSync, existsSync, writeFileSync } from "node:fs"
@@ -117,3 +118,12 @@ appendFileSync(
     .join("")
 )
 console.log(outputs)
+
+// The run name only knows the package; the summary names the exact version.
+if (process.env.GITHUB_STEP_SUMMARY) {
+  const action = published ? "Resuming release of" : "Releasing"
+  appendFileSync(
+    process.env.GITHUB_STEP_SUMMARY,
+    `### ${action} \`${tag}\`\n\nnpm dist-tag \`${distTag}\`, commit \`${sha}\`.\n`
+  )
+}

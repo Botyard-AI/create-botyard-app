@@ -22,9 +22,12 @@ published.
    ```
 
    For example `## [@botyard/runtime@0.2.0] - 2026-11-20`. Merge the PR.
-2. **Actions → Release → Run workflow** on `main`, and pick the package.
+2. **Actions → Release → Run workflow** on `main`, and pick the package. The
+   run is named `Release <name>`, for example `Release @botyard/runtime`, and
+   its summary shows the exact `<name>@<version>` that `prepare` resolved.
 3. A member of the release team approves the `npm-publish` deployment. You
-   cannot approve your own run.
+   cannot approve your own run. Check that the run name and summary show the
+   package and version you expect before approving.
 
 The workflow then:
 
