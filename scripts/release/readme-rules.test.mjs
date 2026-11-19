@@ -33,11 +33,11 @@ test("an in-page anchor link is fine", () => {
 })
 
 test("the header icon is required even when badges remain", () => {
-  fails(`# x\n\n${BADGES}`, /header image before its heading/)
+  fails(`# x\n\n${BADGES}`, /header image before its first heading/)
 })
 
 test("the header icon must come before the heading", () => {
-  fails(`# x\n\n${HEADER}`, /header image before its heading/)
+  fails(`# x\n\n${HEADER}`, /header image before its first heading/)
 })
 
 test("the header icon must be pinned", () => {
@@ -45,33 +45,42 @@ test("the header icon must be pinned", () => {
 })
 
 test("a missing heading fails", () => {
-  fails(HEADER, /no `# ` heading/)
+  fails(HEADER, /has no heading/)
 })
 
 test("relative inline image", () => {
   fails(
     valid("\n![logo](assets/logo.svg)\n"),
-    /image is not an absolute https URL: assets\/logo.svg/
+    /image is not an absolute https URL with a host: assets\/logo.svg/
   )
 })
 
 test("relative reference-style image", () => {
   fails(
     valid("\n![Diagram][diagram]\n\n[diagram]: ./diagram.svg\n"),
-    /reference .*\.\/diagram\.svg/
+    /image is not an absolute https URL with a host: \.\/diagram\.svg/
   )
 })
 
 test("relative reference-style link with angle brackets", () => {
-  fails(valid("\n[Docs][d]\n\n[d]: <./docs.md>\n"), /reference .*\.\/docs\.md/)
+  fails(
+    valid("\n[Docs][d]\n\n[d]: <./docs.md>\n"),
+    /link is not an absolute https URL with a host: \.\/docs\.md/
+  )
 })
 
 test("single-quoted relative <img>", () => {
-  fails(valid("\n<img src='./logo.svg'>\n"), /image is not an absolute https URL: \.\/logo\.svg/)
+  fails(
+    valid("\n<img src='./logo.svg'>\n"),
+    /image is not an absolute https URL with a host: \.\/logo\.svg/
+  )
 })
 
 test("unquoted relative <img>", () => {
-  fails(valid("\n<img src=logo.svg alt=x>\n"), /image is not an absolute https URL: logo\.svg/)
+  fails(
+    valid("\n<img src=logo.svg alt=x>\n"),
+    /image is not an absolute https URL with a host: logo\.svg/
+  )
 })
 
 test("<img> whose src cannot be read", () => {
@@ -87,15 +96,21 @@ test("badge inside a link with a relative outer destination", () => {
 })
 
 test("relative <a href>", () => {
-  fails(valid("\n<a href='docs/x.md'>x</a>\n"), /link is not an absolute https URL: docs\/x\.md/)
+  fails(
+    valid("\n<a href='docs/x.md'>x</a>\n"),
+    /link is not an absolute https URL with a host: docs\/x\.md/
+  )
 })
 
 test("relative inline link", () => {
-  fails(valid("\nSee [docs](./docs.md).\n"), /link is not an absolute https URL: \.\/docs\.md/)
+  fails(
+    valid("\nSee [docs](./docs.md).\n"),
+    /link is not an absolute https URL with a host: \.\/docs\.md/
+  )
 })
 
 test("http image", () => {
-  fails(valid('\n<img src="http://a/c.svg">\n'), /not an absolute https URL: http:/)
+  fails(valid('\n<img src="http://a/c.svg">\n'), /not an absolute https URL with a host: http:/)
 })
 
 test("unpinned image from this repository", () => {
@@ -105,4 +120,38 @@ test("unpinned image from this repository", () => {
 
 test("<picture> is rejected", () => {
   fails(valid('\n<picture><source srcset="https://a/b.svg"></picture>\n'), /<picture>/)
+})
+
+test("an indented header renders as code, so it does not count", () => {
+  const indented = HEADER.split("\n")
+    .map((line) => (line ? `    ${line}` : line))
+    .join("\n")
+  fails(`${indented}# x\n\n${BADGES}`, /header image before its first heading/)
+})
+
+test("a fenced header renders as code, so it does not count", () => {
+  fails("```html\n" + HEADER + "```\n\n# x\n\n" + BADGES, /header image before its first heading/)
+})
+
+test("a hostless https image fails", () => {
+  fails(valid('\n<img src="https://">\n'), /not an absolute https URL with a host: https:\/\//)
+})
+
+test("a hostless https link fails", () => {
+  fails(valid("\n[x](https://)\n"), /link is not an absolute https URL with a host/)
+})
+
+test("the header icon must come from this repository, not just end with its path", () => {
+  const elsewhere = valid().replace(
+    "raw.githubusercontent.com/Botyard-AI/create-botyard-app/",
+    "raw.githubusercontent.com/someone/else/"
+  )
+  fails(elsewhere, /header image before its first heading/)
+})
+
+test("entities in a src are decoded before the URL is checked", () => {
+  assert.deepEqual(
+    readmeProblems(valid('\n<img src="https://img.shields.io/x?a=1&amp;b=2">\n')),
+    []
+  )
 })

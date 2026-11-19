@@ -19,10 +19,11 @@ Packages are released separately. A release section is headed
   config in `tooling/eslint-config` and a type-aware zero-`any` layer, Prettier,
   Vitest 4, knip, TypeScript 5.9.3 and a shared `tsconfig.base.json`. CI runs
   lint, format check, typecheck, test, build and knip.
-- Release checks: every published package's README must be in its tarball, use
-  absolute https links and images, pin images from this repository to a
-  commit, and avoid `<picture>`, which npm strips. `pnpm run lint` and the
-  release workflow run them.
+- Release checks: every published package's README must be in its tarball.
+  Rendered as Markdown, it must start with the pinned Botyard header image,
+  use only absolute https links and images, pin images from this repository
+  to a commit, and avoid `<picture>`, which npm strips. `pnpm run lint` and
+  the release workflow run them.
 - GitHub releases get a branded header and footer around the changelog
   section, with install, provenance and docs links.
 

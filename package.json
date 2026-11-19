@@ -25,6 +25,7 @@
     "@vitest/coverage-v8": "^4.1.12",
     "eslint": "^9.39.5",
     "knip": "^5.88.1",
+    "marked": "18.2.0",
     "prettier": "^3.10.1",
     "typescript": "5.9.3",
     "vitest": "^4.1.12"
