@@ -126,7 +126,11 @@ export function QuotesPage({
             now={new Date()}
             onEdit={onEdit}
             onChanged={(value) => {
-              setLoaded({ id: value.id, value: { state: "ready", value } })
+              // Only if it is still the quote on screen: a change that lands
+              // after the user picked another quote must not replace that one.
+              setLoaded((prev) =>
+                prev?.id === value.id ? { id: value.id, value: { state: "ready", value } } : prev
+              )
               setTick((t) => t + 1)
             }}
           />
