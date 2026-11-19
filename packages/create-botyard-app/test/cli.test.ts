@@ -28,7 +28,10 @@ describe("scaffolding", () => {
     expect(await readJson(path.join(app, "botyard.json"))).toEqual({ name: "my-app", port: 8787 })
     expect(await readFile(path.join(app, ".gitignore"), "utf8")).toBe("node_modules/\n")
     expect(result.stdout).toContain("Created my-app in my-app from the basic template.")
-    expect(result.stdout).toContain("  cd my-app\n  npm install\n  npm test\n  npm run dev\n")
+    expect(result.stdout).toContain("  cd my-app\n  npm ci --include=dev\n  npm test\n")
+    expect(result.stdout).toContain("  npm run dev:mock ")
+    expect(result.stdout).toContain("  npm run expose ")
+    expect(result.stdout).not.toContain("npm install")
   })
 
   test("creates missing parent directories", async () => {

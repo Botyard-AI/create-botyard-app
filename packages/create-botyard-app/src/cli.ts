@@ -104,7 +104,9 @@ export async function main(argv: string[], io: CliIo): Promise<number> {
   }
 
   const shown = path.relative(io.cwd, targetDir) || "."
-  const steps = ["npm install", "npm test", "npm run dev"]
+  // --include=dev: bot runtimes set NODE_ENV=production, which makes npm skip
+  // the test and build tools.
+  const steps = ["npm ci --include=dev", "npm test"]
   if (shown !== ".") steps.unshift(`cd ${quoteForShell(shown)}`)
   io.stdout(
     [
@@ -113,7 +115,12 @@ export async function main(argv: string[], io: CliIo): Promise<number> {
       "Next:",
       ...steps.map((step) => `  ${step}`),
       "",
-      "See README.md in the app for building and publishing it as a Bot Page.",
+      "Then run it:",
+      "  npm run dev:mock   # on your machine, against fixture data",
+      "  npm run dev        # inside a Botyard bot",
+      "  npm run expose     # inside a bot, from a second shell: publish it as a Bot Page",
+      "",
+      "See README.md in the app for more.",
       "",
     ].join("\n")
   )
