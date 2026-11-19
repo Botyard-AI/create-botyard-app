@@ -29,12 +29,12 @@ Create the app and install exactly what its lockfile pins:
 ```sh
 npx create-botyard-app my-app
 cd my-app
-npm ci           # inside a bot: npm ci --include=dev
+npm ci --include=dev
 npm test
 ```
 
-Bot runtimes set `NODE_ENV=production`, which makes npm skip the test and
-build tools; `--include=dev` installs them anyway.
+`--include=dev` keeps the test and build tools installed even when
+`NODE_ENV=production`, as it is inside a Botyard bot.
 
 **On your machine**, run it against fixture data, signed in as a sample user:
 
@@ -42,12 +42,18 @@ build tools; `--include=dev` installs them anyway.
 npm run dev:mock
 ```
 
-**Inside a Botyard bot**, start the app, then publish it from a second shell
-in the app directory while it runs:
+**Inside a Botyard bot**, start the app (API and UI with hot reload on
+127.0.0.1:8787):
 
 ```sh
-npm run dev      # API + UI with hot reload on 127.0.0.1:8787
-npm run expose   # in a second shell: publish it as a Bot Page and print the URL
+npm run dev
+```
+
+Then, from a second shell in the app directory while it runs, publish it as a
+Bot Page and print its URL:
+
+```sh
+npm run expose
 ```
 
 The app runs on Node 22 (22.18 or later) or Node 24: its server is TypeScript
