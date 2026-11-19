@@ -45,8 +45,8 @@ step "team has maintain access to the repo" \
 step "repo: squash merge only, delete merged branches, no wiki/projects" \
   api -X PATCH "repos/$REPO" --input - <<JSON
 {
-  "description": "Scaffold apps, Bot Pages and MCP servers for Botyard AI agents: npx create-botyard-app",
-  "homepage": "https://docs.botyard.io",
+  "description": "Build web apps that run inside your Botyard bot and are served to your org as Bot Pages: npx create-botyard-app",
+  "homepage": "https://botyard.io/features/bot-pages",
   "has_wiki": false,
   "has_projects": false,
   "has_issues": true,
@@ -68,7 +68,7 @@ step "repo: squash merge only, delete merged branches, no wiki/projects" \
 JSON
 step "repo topics" \
   api -X PUT "repos/$REPO/topics" --input - <<'JSON'
-{ "names": ["botyard", "ai-agents", "scaffolding", "create-app", "mcp", "model-context-protocol", "typescript", "nextjs", "vite", "cli"] }
+{ "names": ["botyard", "bot-pages", "ai-agents", "scaffolding", "create-app", "mcp", "model-context-protocol", "typescript", "react", "vite", "hono", "nextjs", "cli"] }
 JSON
 
 # ---------------------------------------------------------------- security
