@@ -1,7 +1,17 @@
+<p align="center">
+  <a href="https://botyard.io"><img src="https://raw.githubusercontent.com/Botyard-AI/create-botyard-app/f52b7e38493a4218d32789d0d08060c47edee504/assets/brand/botyard-app-icon-navy.svg" alt="Botyard" width="96"></a>
+</p>
+
 # @botyard/runtime
 
 Call [Botyard](https://botyard.io) platform tools from an app running inside a
 Botyard bot. One `call()`, typed errors, and no credentials in your code.
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@botyard/runtime"><img src="https://img.shields.io/npm/v/%40botyard%2Fruntime?color=d4622b" alt="npm version"></a>
+  <a href="https://docs.npmjs.com/generating-provenance-statements"><img src="https://img.shields.io/badge/npm-provenance-4a5c6a" alt="Published with npm provenance"></a>
+  <a href="https://github.com/Botyard-AI/create-botyard-app/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/%40botyard%2Fruntime?color=4a5c6a" alt="License: Apache-2.0"></a>
+</p>
 
 ```sh
 npm install @botyard/runtime
@@ -136,9 +146,11 @@ set `BOTYARD_RUNTIME_TRANSPORT=mock` and
 ## More API
 
 - `createRuntime(options?)` returns a `Runtime`: `call`, `getIdentity`,
-  `listTools`, `resolveToolName`, `transportKind` and `transportReason`. The
-  top-level `call` and `getIdentity` use one shared runtime, created on first
-  use.
+  `listTools`, `resolveToolName`, `transportKind` and `transportReason`.
+- `defaultRuntime()` returns the process-wide `Runtime`, created from
+  `process.env` on first use. The top-level `call` and `getIdentity` use it.
+  Pass it where a `ToolCaller` is expected, for example
+  `createBotPage({ tools: defaultRuntime() })` in `@botyard/botpage`.
 - `getIdentity()` reads the `get_identity` tool. If that tool is not assigned,
   it falls back to the pod's `BOTYARD_BOT_ID`, `BOTYARD_ORG_ID` and
   `BOTYARD_ORG_SLUG`.
@@ -165,6 +177,13 @@ set `BOTYARD_RUNTIME_TRANSPORT=mock` and
   read.
 - The MCP transport refuses URLs with embedded credentials and does not follow
   redirects.
+
+## Links
+
+- [Source](https://github.com/Botyard-AI/create-botyard-app/tree/main/packages/runtime) and [changelog](https://github.com/Botyard-AI/create-botyard-app/blob/main/CHANGELOG.md)
+- [Report an issue](https://github.com/Botyard-AI/create-botyard-app/issues). Security reports go privately, see [SECURITY.md](https://github.com/Botyard-AI/create-botyard-app/blob/main/SECURITY.md).
+- [Bot Pages](https://botyard.io/features/bot-pages) and [Hosting apps](https://docs.botyard.io/docs/hosting-apps) in the Botyard docs
+- [botyard.io](https://botyard.io)
 
 ## License
 

@@ -7,8 +7,11 @@
 // tag, dist_tag, published, and a one-line run summary naming the release.
 // Fails, before any side effect, when the release is not safe to make.
 
+import { execFileSync } from "node:child_process"
 import { appendFileSync, readFileSync, readdirSync, existsSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+
+import { releaseNotes } from "./notes.mjs"
 
 const REPO_URL = "git+https://github.com/Botyard-AI/create-botyard-app.git"
 const REGISTRY = "https://registry.npmjs.org"
@@ -44,6 +47,13 @@ if (manifest.private) fail(`${name} is private`)
 // workflow's repository, so catch it here rather than at publish time.
 if (manifest.repository?.url !== REPO_URL) fail(`${name}: repository.url must be ${REPO_URL}`)
 
+// npm shows the README packed into the version; check it before publishing it.
+try {
+  execFileSync(process.execPath, ["scripts/release/check-readmes.mjs", dir], { stdio: "inherit" })
+} catch {
+  fail(`${name}: README check failed (see above)`)
+}
+
 const version = manifest.version
 const semver = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(version ?? "")
 if (!semver) fail(`${name}: version ${JSON.stringify(version)} is not x.y.z or x.y.z-pre`)
@@ -51,7 +61,8 @@ const prerelease = semver[4] !== undefined
 const distTag = prerelease ? "next" : "latest"
 const tag = `${name}@${version}`
 
-// 2. CHANGELOG.md is the only source of release notes.
+// 2. CHANGELOG.md is the only source of release notes; notes.mjs adds the
+//    branded header and footer.
 const changelog = readFileSync("CHANGELOG.md", "utf8").split("\n")
 const heading = `## [${tag}]`
 const start = changelog.findIndex((line) => line === heading || line.startsWith(`${heading} `))
@@ -63,7 +74,10 @@ const notes = changelog
   .join("\n")
   .trim()
 if (!notes) fail(`CHANGELOG.md section "${heading}" is empty`)
-writeFileSync(join(env("RUNNER_TEMP"), "release-notes.md"), `${notes}\n`)
+writeFileSync(
+  join(env("RUNNER_TEMP"), "release-notes.md"),
+  releaseNotes({ name, version, dir, sha, notes })
+)
 
 // 3. Compare with what is already on npm.
 const res = await fetch(`${REGISTRY}/${name.replaceAll("/", "%2F")}`, {

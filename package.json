@@ -8,7 +8,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "lint": "eslint --max-warnings 0 . && pnpm run build:sdk && pnpm -r --if-present run lint",
+    "lint": "eslint --max-warnings 0 . && pnpm run check:readmes && pnpm run build:sdk && pnpm -r --if-present run lint",
+    "check:readmes": "node scripts/release/check-readmes.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc -p tsconfig.json --noEmit && pnpm run build:sdk && pnpm -r --if-present run typecheck",
