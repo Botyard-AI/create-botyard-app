@@ -161,10 +161,9 @@ org comes from `get_identity`. Params must match the destination's
 `required_params` exactly.
 
 The directory returns each destination's route template (`path`, `search`),
-and `resolve()` fills it in. When it cannot build a safe link, for example
-because the directory has no template for that key or the template has an
-unexpected shape, it throws `DeeplinkUnavailableError` rather than guess a
-URL. Catch it and leave the link out.
+and `resolve()` fills it in. If a known destination has no route template, or
+one of an unsupported shape, `resolve()` throws `DeeplinkUnavailableError`
+rather than guess a URL: catch it and leave the link out.
 
 Errors: `UnknownDestinationError`, `DeeplinkParamsError`,
 `DeeplinkUnavailableError` (all extend `DeeplinkError`), and

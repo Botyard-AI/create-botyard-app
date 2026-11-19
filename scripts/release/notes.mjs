@@ -12,6 +12,13 @@ const RAW = "https://raw.githubusercontent.com/Botyard-AI/create-botyard-app"
  */
 export function releaseNotes({ name, version, dir, sha, notes }) {
   const brand = `${RAW}/${sha}/assets/brand`
+  const npmPage = `https://www.npmjs.com/package/${name}/v/${version}`
+  // npx runs the CLI without installing it in the project, so only a library
+  // is something `npm audit signatures` checks.
+  const verify =
+    name === "create-botyard-app"
+      ? ""
+      : " In a project that depends on it, `npm audit signatures` verifies it."
   const install =
     name === "create-botyard-app"
       ? `npx create-botyard-app@${version} my-app`
@@ -35,8 +42,8 @@ ${notes.trim()}
 ${install}
 \`\`\`
 
-Built and published by [the release workflow](${REPO}/blob/${sha}/.github/workflows/release.yml) from [\`${sha.slice(0, 7)}\`](${REPO}/commit/${sha}), with [npm provenance](https://docs.npmjs.com/generating-provenance-statements): after installing, \`npm audit signatures\` verifies it.
+Built and published by [the release workflow](${REPO}/blob/${sha}/.github/workflows/release.yml) from [\`${sha.slice(0, 7)}\`](${REPO}/commit/${sha}), with [npm provenance](https://docs.npmjs.com/generating-provenance-statements), shown on [its npm page](${npmPage}).${verify}
 
-[README](${REPO}/tree/${sha}/${dir}#readme) · [npm](https://www.npmjs.com/package/${name}/v/${version}) · [Changelog](${REPO}/blob/${sha}/CHANGELOG.md) · [Bot Pages docs](https://docs.botyard.io/docs/hosting-apps) · [botyard.io](https://botyard.io)
+[README](${REPO}/tree/${sha}/${dir}#readme) · [npm](${npmPage}) · [Changelog](${REPO}/blob/${sha}/CHANGELOG.md) · [Bot Pages docs](https://docs.botyard.io/docs/hosting-apps) · [botyard.io](https://botyard.io)
 `
 }

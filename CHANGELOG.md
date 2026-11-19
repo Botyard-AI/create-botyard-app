@@ -33,9 +33,12 @@ Packages are released separately. A release section is headed
   `NODE_ENV=production`, as inside a Botyard bot. They also show how to run the
   app on your machine (`npm run dev:mock`) and inside a bot (`npm run dev`,
   then `npm run expose` from a second shell).
-- `create-botyard-app`, `@botyard/runtime`, `@botyard/botpage`: branded READMEs
-  on npm, with the Botyard logo, badges, and links to the source, changelog
-  and Botyard docs.
+- `create-botyard-app`: branded README on npm, with the Botyard logo, badges,
+  and links to the source, changelog and Botyard docs.
+- `@botyard/runtime`: branded README on npm, with the Botyard logo, badges,
+  and links to the source, changelog and Botyard docs.
+- `@botyard/botpage`: branded README on npm, with the Botyard logo, badges,
+  and links to the source, changelog and Botyard docs.
 - `create-botyard-app`: the quick start in this README and in the generated
   app's README installs with `npm ci --include=dev`, so the test and build
   tools are installed even where `NODE_ENV=production`, as inside a bot. It
