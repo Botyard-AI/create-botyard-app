@@ -75,11 +75,18 @@ scripts/lock-template.sh full-app
 ```
 
 The `create-botyard-app` release owns this step. When several libraries are
-released together, publish them first, then open the `create-botyard-app`
-release PR straight away with the regenerated lockfile, so `ci` is red for as
-short a time as possible. Say so in status updates while `main` is red.
-`lock-template.sh` locks our packages at their workspace versions, so it
-cannot run while a bumped package is still unpublished.
+released together:
+
+1. Merge all of their version-bump PRs before publishing any of them. Once
+   the first one is published, `ci` is red on every PR, so a bump PR still
+   open then cannot pass until the lockfile is refreshed.
+2. Publish them, one release run each.
+3. Open the `create-botyard-app` release PR straight away with the
+   regenerated lockfile, so `ci` is red for as short a time as possible.
+
+Say so in status updates while `main` is red. `lock-template.sh` locks our
+packages at their workspace versions, so it cannot run while a bumped package
+is still unpublished.
 
 ## When a release fails
 
