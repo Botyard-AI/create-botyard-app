@@ -7,7 +7,12 @@ import { fileURLToPath } from "node:url"
 import { afterAll, beforeAll, expect, test } from "vitest"
 import { bundleTemplates } from "../scripts/bundle.ts"
 import type { Registry } from "../scripts/pin.ts"
-import { pinWorkspaceDependencies, readWorkspaceVersions } from "../scripts/pin.ts"
+import {
+  isAhead,
+  pinOptionsFromEnv,
+  pinWorkspaceDependencies,
+  readWorkspaceVersions,
+} from "../scripts/pin.ts"
 import { listFiles, readJson, run, tempDir } from "./helpers.ts"
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url))
@@ -47,7 +52,9 @@ beforeAll(async () => {
   pinned = await pinWorkspaceDependencies(
     path.join(out, "full-app"),
     await readWorkspaceVersions(repoRoot),
-    await lockfileRegistry()
+    await lockfileRegistry(),
+    // As the build does: in CI, a release bump is pinned before it is published.
+    pinOptionsFromEnv()
   )
 })
 afterAll(async () => {
@@ -120,7 +127,22 @@ test("full-app's lockfile matches the bundled package.json and pins every packag
   expect(isRecord(root) && isRecord(pkg)).toBe(true)
   if (!isRecord(root) || !isRecord(pkg)) return
   // Regenerate with scripts/lock-template.sh after changing dependencies.
-  expect(root["dependencies"]).toEqual(pkg["dependencies"])
+  // During a release bump in CI the bundle pins our package ahead of npm's
+  // latest, which the lockfile cannot lock yet: there, and only there, expect
+  // the lockfile's published version instead.
+  const expected = isRecord(pkg["dependencies"]) ? { ...pkg["dependencies"] } : {}
+  const locked = isRecord(root["dependencies"]) ? root["dependencies"] : {}
+  for (const [name, version] of pinned) {
+    const lockedVersion = locked[name]
+    if (
+      pinOptionsFromEnv().allowUnpublishedBump === true &&
+      typeof lockedVersion === "string" &&
+      isAhead(version, lockedVersion)
+    ) {
+      expected[name] = lockedVersion
+    }
+  }
+  expect(root["dependencies"]).toEqual(expected)
   expect(root["devDependencies"]).toEqual(pkg["devDependencies"])
 
   const unpinned = Object.entries(packages).filter(([key, entry]) => {

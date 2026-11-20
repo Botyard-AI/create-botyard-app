@@ -8,6 +8,14 @@
 // - that version is the package's current `latest` on npm, and
 // - the template's package-lock.json, if any, locks that same version with
 //   the integrity npm reports for it.
+//
+// One exception, for CI only (`allowUnpublishedBump`, set by ci.yml through
+// BOTYARD_ALLOW_UNPUBLISHED_BUMP): a version strictly ahead of npm's latest is
+// a release bump whose PR must pass CI before release.yml can publish it from
+// main. It is pinned as is, without the lockfile check, which cannot pass until
+// it is published. A version equal to latest gets every check, and anything
+// else still fails. The default, used locally and by release.yml, is strict,
+// so a published CLI never pins an unpublished version.
 
 import { readdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
@@ -21,6 +29,16 @@ export type Published = {
 }
 
 export type Registry = (name: string) => Promise<Published>
+
+type PinOptions = {
+  /** CI only: pin a version ahead of npm's latest without the lockfile check. */
+  readonly allowUnpublishedBump?: boolean
+}
+
+/** Whether ci.yml asked for `allowUnpublishedBump` (BOTYARD_ALLOW_UNPUBLISHED_BUMP=1). */
+export function pinOptionsFromEnv(env: NodeJS.ProcessEnv = process.env): PinOptions {
+  return { allowUnpublishedBump: env["BOTYARD_ALLOW_UNPUBLISHED_BUMP"] === "1" }
+}
 
 const DEPENDENCY_FIELDS = [
   "dependencies",
@@ -50,36 +68,50 @@ export async function readWorkspaceVersions(root: string): Promise<Map<string, s
 export async function pinWorkspaceDependencies(
   templateDir: string,
   workspace: ReadonlyMap<string, string>,
-  registry: Registry
+  registry: Registry,
+  options: PinOptions = {}
 ): Promise<Map<string, string>> {
   const pkgFile = path.join(templateDir, "package.json")
   const pkg = await readJsonObject(pkgFile)
   const pinned = new Map<string, string>()
+  const published = new Map<string, string>()
   for (const field of DEPENDENCY_FIELDS) {
     const deps = pkg[field]
     if (!isJsonObject(deps)) continue
     for (const [name, spec] of Object.entries(deps)) {
       if (typeof spec !== "string" || !spec.startsWith("workspace:")) continue
-      const version = await publishedVersion(pkgFile, name, spec, workspace, registry)
+      const { version, isPublished } = await pinnedVersion(
+        pkgFile,
+        name,
+        spec,
+        workspace,
+        registry,
+        options
+      )
       deps[name] = version
       pinned.set(name, version)
+      if (isPublished) published.set(name, version)
     }
   }
   if (pinned.size === 0) return pinned
 
-  await checkLockfile(templateDir, pinned, registry)
+  await checkLockfile(templateDir, published, registry)
   await writeFile(pkgFile, `${JSON.stringify(pkg, null, 2)}\n`)
   return pinned
 }
 
-/** The version a `workspace:` dependency pins to; throws unless it is npm's latest. */
-async function publishedVersion(
+/**
+ * The version a `workspace:` dependency pins to; throws unless it is npm's
+ * latest, or (with `allowUnpublishedBump`) strictly ahead of it.
+ */
+async function pinnedVersion(
   pkgFile: string,
   name: string,
   spec: string,
   workspace: ReadonlyMap<string, string>,
-  registry: Registry
-): Promise<string> {
+  registry: Registry,
+  options: PinOptions
+): Promise<{ version: string; isPublished: boolean }> {
   if (spec !== "workspace:*") {
     throw new Error(`${pkgFile}: ${name} is "${spec}"; templates use "workspace:*".`)
   }
@@ -88,13 +120,32 @@ async function publishedVersion(
     throw new Error(`${pkgFile}: ${name} is not a publishable package in this repository.`)
   }
   const { latest } = await registry(name)
-  if (latest !== version) {
-    throw new Error(
-      `${pkgFile}: ${name} is ${version} here but npm's latest is ${latest ?? "nothing"}. ` +
-        `Publish ${name}@${version} before releasing a template that uses it.`
-    )
+  if (latest === version) return { version, isPublished: true }
+  if (options.allowUnpublishedBump === true && latest !== undefined && isAhead(version, latest)) {
+    return { version, isPublished: false }
   }
-  return version
+  throw new Error(
+    `${pkgFile}: ${name} is ${version} here but npm's latest is ${latest ?? "nothing"}. ` +
+      `Publish ${name}@${version} before releasing a template that uses it.`
+  )
+}
+
+const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/
+
+/**
+ * Whether `version` is strictly ahead of `latest` by semver precedence. A
+ * prerelease of the same x.y.z, or anything unparseable, is not ahead.
+ */
+export function isAhead(version: string, latest: string): boolean {
+  const a = SEMVER.exec(version)
+  const b = SEMVER.exec(latest)
+  if (a === null || b === null) return false
+  for (const i of [1, 2, 3]) {
+    const diff = Number(a[i]) - Number(b[i])
+    if (diff !== 0) return diff > 0
+  }
+  // Same x.y.z: only a release is ahead of its own prerelease.
+  return a[4] === undefined && b[4] !== undefined
 }
 
 async function checkLockfile(
