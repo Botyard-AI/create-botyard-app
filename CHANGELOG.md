@@ -42,8 +42,6 @@ Packages are released separately. A release section is headed
   then `npm run expose` from a second shell).
 - `create-botyard-app`: branded README on npm, with the Botyard logo, badges,
   and links to the source, changelog and Botyard docs.
-- `@botyard/runtime`: branded README on npm, with the Botyard logo, badges,
-  and links to the source, changelog and Botyard docs.
 - `@botyard/botpage`: branded README on npm, with the Botyard logo, badges,
   and links to the source, changelog and Botyard docs.
 - `create-botyard-app`: the quick start in this README and in the generated
@@ -51,7 +49,6 @@ Packages are released separately. A release section is headed
   tools are installed even where `NODE_ENV=production`, as inside a bot. It
   also runs `dev` and `expose` in separate shells, and the generated app's
   README gets a Troubleshooting section.
-- `@botyard/runtime`: the README documents `defaultRuntime()`.
 - `@botyard/botpage`: the README no longer says deep links are unusable.
   `list_navigation_destinations` now returns route templates, so
   `deeplinks.resolve()` builds links.
@@ -65,6 +62,14 @@ Packages are released separately. A release section is headed
 - `create-botyard-app`: the generated app pins `minimatch` 11.0.1 for
   typescript-eslint and eslint-plugin-sonarjs through an `overrides` entry,
   clearing GHSA-g3hv-75wg-m249 (moderate; development tools only).
+
+## [@botyard/runtime@0.1.2] - 2026-11-20
+
+### Changed
+
+- Branded README on npm, with the Botyard logo, badges, and links to the
+  source, changelog and Botyard docs.
+- The README documents `defaultRuntime()`.
 
 ## [create-botyard-app@0.1.0] - 2026-11-17
 

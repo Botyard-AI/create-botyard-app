@@ -1,6 +1,6 @@
 {
   "name": "@botyard/runtime",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Call Botyard platform tools from a bot app: one call() over the native daemon (botyardd) or the OpenClaw MCP proxy, with a mock for tests.",
   "license": "Apache-2.0",
   "repository": {
