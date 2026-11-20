@@ -2,7 +2,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import type { Published, Registry } from "../scripts/pin.ts"
-import { npmRegistry, pinWorkspaceDependencies, readWorkspaceVersions } from "../scripts/pin.ts"
+import {
+  isAhead,
+  npmRegistry,
+  pinOptionsFromEnv,
+  pinWorkspaceDependencies,
+  readWorkspaceVersions,
+} from "../scripts/pin.ts"
 import { readJson, tempDir } from "./helpers.ts"
 
 const workspace = new Map([
@@ -120,6 +126,107 @@ describe("pinWorkspaceDependencies", () => {
       /does not lock @botyard\/runtime@0\.1\.1 as published/
     )
   })
+})
+
+describe("a release bump in CI (allowUnpublishedBump)", () => {
+  // runtime bumped to 0.1.2 in the workspace; npm's latest is still 0.1.1.
+  const bumped = new Map([
+    ["@botyard/runtime", "0.1.2"],
+    ["@botyard/botpage", "0.1.0"],
+  ])
+  const ci = { allowUnpublishedBump: true }
+  const both = { "@botyard/runtime": "workspace:*", "@botyard/botpage": "workspace:*" }
+
+  test("pins a version ahead of npm's latest, checking the lockfile only for the rest", async () => {
+    // The lockfile still locks the published runtime 0.1.1; botpage is up to date.
+    const dir = await template({ dependencies: both }, goodLock)
+    const pinned = await pinWorkspaceDependencies(dir, bumped, published, ci)
+    expect(Object.fromEntries(pinned)).toEqual({
+      "@botyard/runtime": "0.1.2",
+      "@botyard/botpage": "0.1.0",
+    })
+    expect(await readJson(path.join(dir, "package.json"))).toEqual({
+      dependencies: { "@botyard/runtime": "0.1.2", "@botyard/botpage": "0.1.0" },
+    })
+  })
+
+  test("still checks a package that is not ahead: its lockfile entry must match", async () => {
+    const lock = lockFor({
+      "@botyard/runtime": { version: "0.1.1", integrity: "sha512-@botyard/runtime@0.1.1" },
+      "@botyard/botpage": { version: "0.1.0", integrity: "sha512-tampered" },
+    })
+    const dir = await template({ dependencies: both }, lock)
+    await expect(pinWorkspaceDependencies(dir, bumped, published, ci)).rejects.toThrow(
+      /does not lock @botyard\/botpage@0\.1\.0 as published/
+    )
+  })
+
+  test("still fully checks a version equal to npm's latest", async () => {
+    const lock = lockFor({
+      "@botyard/runtime": { version: "0.1.1", integrity: "sha512-tampered" },
+    })
+    const dir = await template({ dependencies: { "@botyard/runtime": "workspace:*" } }, lock)
+    await expect(pinWorkspaceDependencies(dir, workspace, published, ci)).rejects.toThrow(
+      /does not lock @botyard\/runtime@0\.1\.1 as published/
+    )
+  })
+
+  test.each([
+    [
+      "behind npm's latest",
+      fakeRegistry({ "@botyard/runtime": "0.1.3" }),
+      /npm's latest is 0\.1\.3/,
+    ],
+    ["for a package npm has never published", fakeRegistry({}), /npm's latest is nothing/],
+  ])("still fails %s", async (_label, registry, message) => {
+    const dir = await template({ dependencies: { "@botyard/runtime": "workspace:*" } })
+    await expect(pinWorkspaceDependencies(dir, bumped, registry, ci)).rejects.toThrow(message)
+  })
+
+  test("is off by default: a version ahead of npm's latest fails, as in release.yml", async () => {
+    const dir = await template({ dependencies: both }, goodLock)
+    await expect(pinWorkspaceDependencies(dir, bumped, published)).rejects.toThrow(
+      /@botyard\/runtime is 0\.1\.2 here but npm's latest is 0\.1\.1/
+    )
+  })
+
+  test("is read from BOTYARD_ALLOW_UNPUBLISHED_BUMP=1 only", () => {
+    expect(pinOptionsFromEnv({ BOTYARD_ALLOW_UNPUBLISHED_BUMP: "1" })).toEqual(ci)
+    for (const value of [undefined, "", "0", "true", "yes"]) {
+      expect(pinOptionsFromEnv({ BOTYARD_ALLOW_UNPUBLISHED_BUMP: value })).toEqual({
+        allowUnpublishedBump: false,
+      })
+    }
+  })
+})
+
+test.each([
+  ["0.1.2", "0.1.1", true],
+  ["0.2.0", "0.1.9", true],
+  ["1.0.0", "0.9.9", true],
+  ["0.1.10", "0.1.9", true],
+  ["0.10.0", "0.9.0", true],
+  ["0.1.9007199254740993", "0.1.9007199254740992", true],
+  ["0.1.1", "0.1.1", false],
+  ["0.1.0", "0.1.1", false],
+  ["0.1.9", "0.1.10", false],
+  // Only stable x.y.z on both sides; everything else gets the strict check.
+  ["1.0.0", "1.0.0-rc.1", false],
+  ["1.0.0-rc.1", "1.0.0", false],
+  ["1.0.0-rc.2", "1.0.0-rc.1", false],
+  ["0.1.2-rc.1", "0.1.1", false],
+  ["0.1.2+build", "0.1.1", false],
+  ["0.1.2-.", "0.1.1", false],
+  ["0.01.2", "0.1.1", false],
+  ["0.1.02", "0.1.1", false],
+  ["v0.1.2", "0.1.1", false],
+  [" 0.1.2", "0.1.1", false],
+  ["0.1.2\n", "0.1.1", false],
+  ["0.1", "0.1.1", false],
+  ["0.1.2", "latest", false],
+  ["0.1.2", "", false],
+])("isAhead(%s, %s) is %s", (version, latest, expected) => {
+  expect(isAhead(version, latest)).toBe(expected)
 })
 
 test("readWorkspaceVersions lists publishable packages only", async () => {

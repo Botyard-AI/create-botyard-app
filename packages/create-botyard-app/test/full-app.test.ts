@@ -4,10 +4,15 @@ import { lstat, mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { afterAll, beforeAll, expect, test } from "vitest"
+import { afterAll, beforeAll, describe, expect, test } from "vitest"
 import { bundleTemplates } from "../scripts/bundle.ts"
 import type { Registry } from "../scripts/pin.ts"
-import { pinWorkspaceDependencies, readWorkspaceVersions } from "../scripts/pin.ts"
+import {
+  isAhead,
+  pinOptionsFromEnv,
+  pinWorkspaceDependencies,
+  readWorkspaceVersions,
+} from "../scripts/pin.ts"
 import { listFiles, readJson, run, tempDir } from "./helpers.ts"
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url))
@@ -47,7 +52,9 @@ beforeAll(async () => {
   pinned = await pinWorkspaceDependencies(
     path.join(out, "full-app"),
     await readWorkspaceVersions(repoRoot),
-    await lockfileRegistry()
+    await lockfileRegistry(),
+    // As the build does: in CI, a release bump is pinned before it is published.
+    pinOptionsFromEnv()
   )
 })
 afterAll(async () => {
@@ -120,7 +127,7 @@ test("full-app's lockfile matches the bundled package.json and pins every packag
   expect(isRecord(root) && isRecord(pkg)).toBe(true)
   if (!isRecord(root) || !isRecord(pkg)) return
   // Regenerate with scripts/lock-template.sh after changing dependencies.
-  expect(root["dependencies"]).toEqual(pkg["dependencies"])
+  expect(rootDependencyMismatches(pkg, lock, pinned)).toEqual([])
   expect(root["devDependencies"]).toEqual(pkg["devDependencies"])
 
   const unpinned = Object.entries(packages).filter(([key, entry]) => {
@@ -153,6 +160,97 @@ test("full-app pins every dependency to an exact version and has no install scri
   for (const hook of ["preinstall", "install", "postinstall", "prepare", "prepublish"]) {
     expect(scripts).not.toContain(hook)
   }
+})
+
+/**
+ * Where the lockfile's root `dependencies` disagree with the bundled
+ * package.json. Each expected version comes from the bundle, except that a
+ * package pinned ahead of its locked version (a release bump in CI, which the
+ * lockfile cannot lock until it is published) is expected at its locked
+ * version instead. Never derived from the root declaration being checked.
+ */
+function rootDependencyMismatches(
+  pkg: unknown,
+  lock: unknown,
+  pinned: ReadonlyMap<string, string>,
+  options = pinOptionsFromEnv()
+): string[] {
+  const packages = isRecord(lock) && isRecord(lock["packages"]) ? lock["packages"] : {}
+  const root = packages[""]
+  const declared = isRecord(root) && isRecord(root["dependencies"]) ? root["dependencies"] : {}
+  const expected: Record<string, unknown> =
+    isRecord(pkg) && isRecord(pkg["dependencies"]) ? { ...pkg["dependencies"] } : {}
+  for (const [name, version] of pinned) {
+    const entry = packages[`node_modules/${name}`]
+    const locked = isRecord(entry) ? entry["version"] : undefined
+    if (
+      options.allowUnpublishedBump === true &&
+      typeof locked === "string" &&
+      isAhead(version, locked)
+    ) {
+      expected[name] = locked
+    }
+  }
+  const names = new Set([...Object.keys(expected), ...Object.keys(declared)])
+  return [...names]
+    .filter((name) => declared[name] !== expected[name])
+    .map(
+      (name) =>
+        `${name}: lockfile root has ${String(declared[name])}, expected ${String(expected[name])}`
+    )
+}
+
+describe("rootDependencyMismatches", () => {
+  const lockOf = (declared: string, locked: string): unknown => ({
+    packages: {
+      "": { dependencies: { "@botyard/runtime": declared } },
+      "node_modules/@botyard/runtime": { version: locked },
+    },
+  })
+  const pkgOf = (version: string): unknown => ({ dependencies: { "@botyard/runtime": version } })
+  const ci = { allowUnpublishedBump: true }
+
+  test("agrees when the root declares what the bundle pins", () => {
+    const pins = new Map([["@botyard/runtime", "0.1.1"]])
+    expect(rootDependencyMismatches(pkgOf("0.1.1"), lockOf("0.1.1", "0.1.1"), pins, ci)).toEqual([])
+  })
+
+  test("catches a stale root declaration for a package at npm latest, in CI too", () => {
+    const pins = new Map([["@botyard/runtime", "0.1.1"]])
+    for (const options of [{}, ci]) {
+      expect(
+        rootDependencyMismatches(pkgOf("0.1.1"), lockOf("0.1.0", "0.1.1"), pins, options)
+      ).toEqual(["@botyard/runtime: lockfile root has 0.1.0, expected 0.1.1"])
+    }
+  })
+
+  test("expects the locked version for a release bump in CI, and only there", () => {
+    const pins = new Map([["@botyard/runtime", "0.1.2"]])
+    expect(rootDependencyMismatches(pkgOf("0.1.2"), lockOf("0.1.1", "0.1.1"), pins, ci)).toEqual([])
+    expect(rootDependencyMismatches(pkgOf("0.1.2"), lockOf("0.1.1", "0.1.1"), pins, {})).toEqual([
+      "@botyard/runtime: lockfile root has 0.1.1, expected 0.1.2",
+    ])
+  })
+
+  test("catches a stale root declaration during a release bump in CI", () => {
+    const pins = new Map([["@botyard/runtime", "0.1.2"]])
+    expect(rootDependencyMismatches(pkgOf("0.1.2"), lockOf("0.1.0", "0.1.1"), pins, ci)).toEqual([
+      "@botyard/runtime: lockfile root has 0.1.0, expected 0.1.1",
+    ])
+  })
+
+  test("catches a dependency missing from either side", () => {
+    const pins = new Map([["@botyard/runtime", "0.1.1"]])
+    const lock = {
+      packages: {
+        "": { dependencies: { "@botyard/runtime": "0.1.1", hono: "4.0.0" } },
+        "node_modules/@botyard/runtime": { version: "0.1.1" },
+      },
+    }
+    expect(rootDependencyMismatches(pkgOf("0.1.1"), lock, pins, {})).toEqual([
+      "hono: lockfile root has 4.0.0, expected undefined",
+    ])
+  })
 })
 
 function isRecord(value: unknown): value is Record<string, unknown> {

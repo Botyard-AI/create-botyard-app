@@ -35,8 +35,17 @@ jobs:
       - run: pnpm run lint
       - run: pnpm run format:check
       - run: pnpm run typecheck
+      # A release bump (a package's version ahead of npm's latest) must pass CI
+      # before release.yml can publish it, so these two steps may pin the
+      # bundled template to it. Versions equal to npm's latest keep every check,
+      # and the release build itself stays strict. See
+      # packages/create-botyard-app/scripts/pin.ts.
       - run: pnpm run test
+        env:
+          BOTYARD_ALLOW_UNPUBLISHED_BUMP: "1"
       - run: pnpm run build
+        env:
+          BOTYARD_ALLOW_UNPUBLISHED_BUMP: "1"
       - run: pnpm run knip
       # Examples install our packages from npm, as a generated app does.
       - run: scripts/check-examples.sh
