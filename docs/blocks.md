@@ -100,8 +100,9 @@ CI runs the same check in the `ci` job, so a block that breaks a generated app
 fails CI. For each block, `scripts/check-blocks.ts`:
 
 1. Generates an app with the CLI built from this commit.
-2. Builds the registry and serves it on `127.0.0.1`, and points the app's
-   `@botyard` registry there instead of `https://blocks.botyard.io`.
+2. Serves the built registry, `registry/dist` (what `registry.yml`
+   publishes), on `127.0.0.1`, and points the app's `@botyard` registry there
+   instead of `https://blocks.botyard.io`.
 3. Adds the block's npm dependencies to the app's `package.json` and locks them
    with `scripts/lock-template.sh --app`: third-party versions as of 3 days
    ago, no install scripts.

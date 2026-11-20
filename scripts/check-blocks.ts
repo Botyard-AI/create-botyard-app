@@ -4,18 +4,21 @@
 //
 // For each block:
 // 1. Generate an app with the CLI built from this commit
-//    (packages/create-botyard-app/dist; run `pnpm run build` first).
-// 2. Point the app's @botyard registry at this commit's blocks, built and
-//    served on 127.0.0.1, instead of https://blocks.botyard.io.
+//    (packages/create-botyard-app/dist).
+// 2. Point the app's @botyard registry at the built blocks in registry/dist,
+//    the files registry.yml publishes, served on 127.0.0.1 instead of
+//    https://blocks.botyard.io.
 // 3. Add the block's npm dependencies to package.json and lock them with
 //    scripts/lock-template.sh --app: every third-party version is at least
-//    3 days old, and no newly locked package has an install script.
+//    3 days old, and no package has an install script unless the template
+//    locks that exact package already.
 // 4. `npm ci`, then `shadcn add @botyard/<block>`. shadcn would install the
 //    npm dependencies again with plain `npm install`, outside those rules, so
 //    the server leaves them out of the block, and npm is replaced by a stub
 //    that fails if shadcn runs it anyway.
 // 5. The app's lint, format:check, typecheck, test and build.
 //
+// Run `pnpm run build` first: it builds both the CLI and registry/dist.
 // Usage: node scripts/check-blocks.ts [block ...]   (default: every block)
 
 import { spawn } from "node:child_process"
@@ -23,10 +26,11 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { createServer } from "node:http"
 import os from "node:os"
 import path from "node:path"
-import type { JsonObject, LockEntry } from "./blocks/json.ts"
+import type { JsonObject } from "./blocks/json.ts"
 import { lockEntries, object, readJson, stringRecord, writeJson } from "./blocks/json.ts"
 import {
   installablePins,
+  newInstallScripts,
   NAMESPACE,
   npmDependencies,
   parseBlock,
@@ -54,7 +58,7 @@ try {
 }
 
 async function main(only: string[]): Promise<void> {
-  const items = await buildRegistry()
+  const items = await readBuiltRegistry()
   const blocks = new Map([...items].map(([name, item]) => [name, item.block]))
   const problems = registryProblems(blocks)
   if (problems.length > 0) throw new Error(`registry/registry.json:\n  ${problems.join("\n  ")}`)
@@ -76,10 +80,12 @@ async function main(only: string[]): Promise<void> {
   }
 }
 
-/** Builds the registry into the work directory and reads every item. */
-async function buildRegistry(): Promise<Map<string, Item>> {
-  const out = path.join(work, "r")
-  await run(shadcn, ["build", "registry/registry.json", "--output", out], { cwd: root })
+/**
+ * Reads every item from registry/dist/r, which `pnpm run build` writes and
+ * registry.yml publishes, so the files checked are the files published.
+ */
+async function readBuiltRegistry(): Promise<Map<string, Item>> {
+  const built = path.join(root, "registry", "dist", "r")
   const source = object(
     await readJson(path.join(root, "registry", "registry.json")),
     "registry.json"
@@ -88,9 +94,14 @@ async function buildRegistry(): Promise<Map<string, Item>> {
   const items = new Map<string, Item>()
   for (const [i, entry] of source["items"].entries()) {
     const { name } = parseBlock(entry, `registry.json items[${i}]`)
-    const file = path.join(out, `${name}.json`)
-    const json = object(await readJson(file), file)
-    items.set(name, { json, block: parseBlock(json, file) })
+    const file = path.join(built, `${name}.json`)
+    let json: unknown
+    try {
+      json = await readJson(file)
+    } catch (err) {
+      throw new Error(`cannot read ${file}; run \`pnpm run build\` first`, { cause: err })
+    }
+    items.set(name, { json: object(json, file), block: parseBlock(json, file) })
   }
   return items
 }
@@ -171,7 +182,11 @@ async function checkBlock(
   await writeJson(pkgFile, { ...pkg, dependencies, devDependencies })
   if (needs.dependencies.size + needs.devDependencies.size > 0) {
     await run(path.join(root, "scripts", "lock-template.sh"), ["--app", app], { cwd: root })
-    assertNoNewInstallScripts(generatedLock, lockEntries(await readJson(lockFile), lockFile))
+    const scripts = newInstallScripts(
+      generatedLock,
+      lockEntries(await readJson(lockFile), lockFile)
+    )
+    if (scripts.length > 0) throw new Error(`install scripts in ${scripts.join(", ")}`)
   }
 
   await run("npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: app, env })
@@ -188,21 +203,6 @@ async function checkBlock(
 
   for (const script of ["lint", "format:check", "typecheck", "test", "build"]) {
     await run("npm", ["run", script], { cwd: app, env })
-  }
-}
-
-/**
- * The template's lockfile may have entries with install scripts (fsevents);
- * the app's .npmrc never runs them. A block may not add any more.
- */
-function assertNoNewInstallScripts(
-  before: ReadonlyMap<string, LockEntry>,
-  after: ReadonlyMap<string, LockEntry>
-): void {
-  for (const [key, entry] of after) {
-    if (entry.hasInstallScript && before.get(key)?.hasInstallScript !== true) {
-      throw new Error(`${key.replace(/^node_modules\//, "")} has an install script`)
-    }
   }
 }
 

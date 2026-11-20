@@ -202,3 +202,27 @@ export function installablePins(
 function otherBlock(dep: string): string | undefined {
   return dep.startsWith(`${NAMESPACE}/`) ? dep.slice(NAMESPACE.length + 1) : undefined
 }
+
+/**
+ * Locked packages with an install script that the generated app's lockfile
+ * did not already have. The template's lockfile may have some (fsevents);
+ * the app's .npmrc never runs them. Re-locking for a block keeps such an
+ * entry only as the very same package: same version, tarball and integrity.
+ */
+export function newInstallScripts(
+  before: ReadonlyMap<string, LockEntry>,
+  after: ReadonlyMap<string, LockEntry>
+): string[] {
+  const added: string[] = []
+  for (const [key, entry] of after) {
+    if (!entry.hasInstallScript) continue
+    const old = before.get(key)
+    const same =
+      old?.hasInstallScript === true &&
+      old.version === entry.version &&
+      old.resolved === entry.resolved &&
+      old.integrity === entry.integrity
+    if (!same) added.push(`${key.replace(/^node_modules\//, "")}@${entry.version ?? "?"}`)
+  }
+  return added
+}

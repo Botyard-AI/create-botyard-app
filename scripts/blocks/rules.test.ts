@@ -4,6 +4,7 @@ import type { LockEntry } from "./json.ts"
 import { lockEntries } from "./json.ts"
 import {
   installablePins,
+  newInstallScripts,
   npmDependencies,
   parseBlock,
   registryProblems,
@@ -153,6 +154,46 @@ describe("installablePins", () => {
   it("leaves other packages to the lockfile rules", () => {
     const deps = { zod: "9.9.9" }
     assert.deepEqual(installablePins(deps, lock, strict).dependencies, deps)
+  })
+})
+
+describe("newInstallScripts", () => {
+  const fsevents: LockEntry = {
+    version: "2.3.3",
+    resolved: "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
+    integrity: "sha512-old",
+    hasInstallScript: true,
+  }
+  const key = "node_modules/fsevents"
+  const before = new Map([[key, fsevents]])
+
+  it("keeps the template's own script-bearing package as it was", () => {
+    assert.deepEqual(newInstallScripts(before, new Map([[key, fsevents]])), [])
+  })
+
+  it("refuses a new package with an install script", () => {
+    const after = new Map([
+      [key, fsevents],
+      ["node_modules/core-js", { ...fsevents, version: "3.40.0" }],
+    ])
+    assert.deepEqual(newInstallScripts(before, after), ["core-js@3.40.0"])
+  })
+
+  it("refuses a different package at the same path", () => {
+    for (const change of [
+      { version: "2.3.4" },
+      { resolved: "https://example.com/fsevents-2.3.3.tgz" },
+      { integrity: "sha512-new" },
+    ]) {
+      const after = new Map([[key, { ...fsevents, ...change }]])
+      assert.deepEqual(newInstallScripts(before, after), [`fsevents@${change.version ?? "2.3.3"}`])
+    }
+  })
+
+  it("refuses a script on a package that had none", () => {
+    const after = new Map([[key, fsevents]])
+    const quiet = new Map([[key, { ...fsevents, hasInstallScript: false }]])
+    assert.deepEqual(newInstallScripts(quiet, after), ["fsevents@2.3.3"])
   })
 })
 
