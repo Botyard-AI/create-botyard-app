@@ -8,3 +8,5 @@ coverage/
 .DS_Store
 # Build output: the templates bundled into the create-botyard-app package.
 packages/create-botyard-app/templates/
+# wrangler's local cache (registry/wrangler.jsonc).
+.wrangler/

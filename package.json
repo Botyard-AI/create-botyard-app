@@ -13,10 +13,12 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc -p tsconfig.json --noEmit && pnpm run build:sdk && pnpm -r --if-present run typecheck",
-    "test": "vitest run && node --test scripts/release/readme-rules.test.mjs && pnpm run build:sdk && pnpm --filter \"./templates/*\" run test",
+    "test": "vitest run && node --test scripts/release/readme-rules.test.mjs scripts/blocks/rules.test.ts && pnpm run build:sdk && pnpm --filter \"./templates/*\" run test",
     "test:coverage": "vitest run --coverage",
-    "build": "pnpm -r --if-present run build",
+    "build": "pnpm -r --if-present run build && pnpm run build:registry",
     "build:sdk": "pnpm --filter @botyard/runtime --filter @botyard/botpage run build",
+    "build:registry": "shadcn build registry/registry.json --output registry/dist/r",
+    "check:blocks": "node scripts/check-blocks.ts",
     "knip": "knip"
   },
   "devDependencies": {
@@ -27,7 +29,9 @@
     "knip": "^5.88.1",
     "marked": "18.2.0",
     "prettier": "^3.10.1",
+    "shadcn": "4.23.0",
     "typescript": "5.9.3",
-    "vitest": "^4.1.12"
+    "vitest": "^4.1.12",
+    "wrangler": "4.164.0"
   }
 }
