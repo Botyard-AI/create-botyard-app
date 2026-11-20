@@ -1,6 +1,6 @@
 {
   "name": "create-botyard-app",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Scaffold a Botyard app: a Node API and a React UI, served as a Bot Page.",
   "license": "Apache-2.0",
   "repository": {

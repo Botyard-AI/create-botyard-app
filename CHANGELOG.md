@@ -27,32 +27,36 @@ Packages are released separately. A release section is headed
 - GitHub releases get a branded header and footer around the changelog
   section, with install, provenance and docs links.
 
+## [create-botyard-app@0.1.1] - 2026-11-20
+
 ### Changed
 
-- Tooling and the `full-app` template: ESLint 10 replaces ESLint 9, which is
-  end of life, so generated apps install without its deprecation warning.
-  `@eslint/js` 10.0.1, `eslint-plugin-react-hooks` 7.1.1 (which adds the React
-  Compiler rules to `recommended`). `eslint-plugin-react` is removed: it does
-  not support ESLint 10. Its one rule, `react/no-multi-comp` (one component
-  per file), goes with it.
-- `create-botyard-app`: the next steps it prints install with
-  `npm ci --include=dev`, so the test and build tools are installed even where
-  `NODE_ENV=production`, as inside a Botyard bot. They also show how to run the
-  app on your machine (`npm run dev:mock`) and inside a bot (`npm run dev`,
-  then `npm run expose` from a second shell).
-- `create-botyard-app`: branded README on npm, with the Botyard logo, badges,
-  and links to the source, changelog and Botyard docs.
-- `create-botyard-app`: the quick start in this README and in the generated
-  app's README installs with `npm ci --include=dev`, so the test and build
-  tools are installed even where `NODE_ENV=production`, as inside a bot. It
-  also runs `dev` and `expose` in separate shells, and the generated app's
-  README gets a Troubleshooting section.
+- Generated apps use `@botyard/runtime` 0.1.2 and `@botyard/botpage` 0.1.1;
+  see their sections below.
+- The `full-app` template, and this repository's tooling: ESLint 10 replaces
+  ESLint 9, which is end of life, so generated apps install without its
+  deprecation warning. `@eslint/js` 10.0.1, `eslint-plugin-react-hooks` 7.1.1
+  (which adds the React Compiler rules to `recommended`). `eslint-plugin-react`
+  is removed: it does not support ESLint 10. Its one rule,
+  `react/no-multi-comp` (one component per file), goes with it.
+- The next steps it prints install with `npm ci --include=dev`, so the test
+  and build tools are installed even where `NODE_ENV=production`, as inside a
+  Botyard bot. They also show how to run the app on your machine
+  (`npm run dev:mock`) and inside a bot (`npm run dev`, then `npm run expose`
+  from a second shell).
+- Branded README on npm, with the Botyard logo, badges, and links to the
+  source, changelog and Botyard docs.
+- The quick start in this README and in the generated app's README installs
+  with `npm ci --include=dev`, so the test and build tools are installed even
+  where `NODE_ENV=production`, as inside a bot. It also runs `dev` and
+  `expose` in separate shells, and the generated app's README gets a
+  Troubleshooting section.
 
 ### Security
 
-- `create-botyard-app`: the generated app pins `minimatch` 11.0.1 for
-  typescript-eslint and eslint-plugin-sonarjs through an `overrides` entry,
-  clearing GHSA-g3hv-75wg-m249 (moderate; development tools only).
+- The generated app pins `minimatch` 11.0.1 for typescript-eslint and
+  eslint-plugin-sonarjs through an `overrides` entry, clearing
+  GHSA-g3hv-75wg-m249 (moderate; development tools only).
 
 ## [@botyard/botpage@0.1.1] - 2026-11-20
 
