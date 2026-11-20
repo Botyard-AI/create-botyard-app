@@ -48,6 +48,39 @@ The workflow then:
 - the version is already on npm, unless it was published by this workflow from
   this exact commit, as shown by its provenance.
 
+## Releasing a package the template uses
+
+`create-botyard-app` bundles `templates/full-app`, which depends on
+`@botyard/runtime` and `@botyard/botpage`. The CLI build pins those
+dependencies to the versions in `packages/*/package.json` and requires each
+one to be npm's `latest` and locked by integrity in
+`templates/full-app/package-lock.json`. Two consequences:
+
+- **Before the library is published**, its release PR bumps the version ahead
+  of npm. CI sets `BOTYARD_ALLOW_UNPUBLISHED_BUMP=1` on its `test` and `build`
+  steps, which accepts a stable version strictly ahead of npm's `latest`
+  without the lockfile check for that package. Everything else is still fully
+  checked, and local builds and `release.yml` never set the variable.
+- **Once the library is published**, its version equals npm's `latest`, so
+  the full check applies again, in CI too. The template lockfile still locks
+  the previous version, so **`ci` fails on `main` and on every PR** until the
+  lockfile is regenerated. This is the cost of keeping the "equal to npm"
+  check strict.
+
+So after publishing `@botyard/runtime` or `@botyard/botpage`, regenerate the
+template lockfile before anything else merges:
+
+```sh
+scripts/lock-template.sh full-app
+```
+
+The `create-botyard-app` release owns this step. When several libraries are
+released together, publish them first, then open the `create-botyard-app`
+release PR straight away with the regenerated lockfile, so `ci` is red for as
+short a time as possible. Say so in status updates while `main` is red.
+`lock-template.sh` locks our packages at their workspace versions, so it
+cannot run while a bumped package is still unpublished.
+
 ## When a release fails
 
 Use **Re-run all jobs** on the failed run. It runs from the same commit, so
