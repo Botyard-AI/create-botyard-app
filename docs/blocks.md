@@ -63,8 +63,8 @@ sample that shows the layout.
 
 ### Rules for dependencies
 
-`node scripts/check-blocks.mjs` refuses a registry that breaks these
-(`scripts/blocks/rules.mjs`):
+`node scripts/check-blocks.ts` refuses a registry that breaks these
+(`scripts/blocks/rules.ts`):
 
 - **npm dependencies are exact versions**, `"<name>@<x.y.z>"` in
   `dependencies` or `devDependencies`, such as `"dependencies": ["zod@4.1.12"]`. Each version must have been public on
@@ -75,6 +75,17 @@ sample that shows the layout.
   so shadcn would install whatever is newest. A block that needs one ships its
   own copy as another `@botyard` block, with exact dependencies.
 - A dependency the template already has must be at the template's version.
+- **Files stay in the block's place.** A `target` is under `~/server/`,
+  `~/src/` or `~/test/`, with no `..`. A block never writes `package.json`,
+  `.npmrc`, `.env` or anything outside the app.
+- **Only the plain fields.** shadcn's `envVars` (writes `.env`), `css` and
+  `cssVars` (edit the app's stylesheet) and anything else not in
+  `scripts/blocks/rules.ts` are refused until we decide to support them.
+
+Exact versions pin a block's *direct* dependencies only. In a user's app,
+shadcn runs `npm install <name>@<version>` and npm resolves their
+dependencies afresh, outside the 3-day rule. Review the lockfile change after
+adding a block, as the app's README says for any new package.
 
 ## Test a block
 
@@ -86,7 +97,7 @@ pnpm run check:blocks greeting # one block
 ```
 
 CI runs the same check in the `ci` job, so a block that breaks a generated app
-fails CI. For each block, `scripts/check-blocks.mjs`:
+fails CI. For each block, `scripts/check-blocks.ts`:
 
 1. Generates an app with the CLI built from this commit.
 2. Builds the registry and serves it on `127.0.0.1`, and points the app's
@@ -102,17 +113,22 @@ ignores the 3-day rule, so the local server leaves them out of the block. Step
 3 has already installed them under the rules. `npm`, `pnpm`, `yarn` and `bun`
 are replaced by stubs that fail if shadcn runs them anyway.
 
-When a release bump pins one of our packages at a version that is not on npm
-yet, a generated app cannot install, so the check warns and skips. It runs
-again once the package is published (see [releasing.md](./releasing.md)).
+During a release bump the CLI built in CI pins one of our packages at a
+version that is not on npm yet (see [releasing.md](./releasing.md)), so the
+generated app cannot install. In CI only (`BOTYARD_ALLOW_UNPUBLISHED_BUMP=1`),
+the check then puts that package back to the published version the app's
+lockfile locks, says so in a notice, and checks the block against it.
+Anywhere else, and in the publish workflow, a mismatch is an error.
 
 ## Publish
 
 `.github/workflows/registry.yml` publishes `main` to `https://blocks.botyard.io`.
 Start it by hand: **Actions → Publish blocks → Run workflow** on `main`.
 
-1. **build** (read-only, no secrets) runs `pnpm run build:registry` and uploads
-   `registry/dist`.
+1. **build** (read-only, no secrets) runs `pnpm run build` and
+   `pnpm run check:blocks` without the release-bump exception, then uploads
+   `registry/dist`. A block that fails, or a `main` whose CLI cannot be built,
+   is not published.
 2. **publish** waits for approval in the `blocks-publish` environment (`main`
    only, a maintainer other than whoever started it). It then deploys exactly
    that artifact with `wrangler deploy` (`registry/wrangler.jsonc`), as the

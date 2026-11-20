@@ -3,9 +3,11 @@ name: Publish blocks
 # Publishes the block registry in registry/ to https://blocks.botyard.io, where
 # `npx shadcn add @botyard/<block>` fetches /r/<block>.json. See docs/blocks.md.
 #
-# - Started by hand from main. Blocks reach main only after CI has added each
-#   one to a generated app and run its checks (scripts/check-blocks.mjs).
-# - build: read-only, no secrets. Builds registry/dist with shadcn.
+# - Started by hand from main.
+# - build: read-only, no secrets. Builds the CLI and registry/dist, then adds
+#   each block to a generated app and runs its checks (scripts/check-blocks.ts)
+#   again, strictly: no release-bump exception, unlike ci.yml. Only then is
+#   registry/dist uploaded for publish.
 # - publish: the only job with a secret, gated by the blocks-publish
 #   environment (main only, team approval, no self-review). Deploys
 #   registry/dist as the static assets of the botyard-blocks Worker
@@ -27,7 +29,7 @@ jobs:
     name: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -41,7 +43,10 @@ jobs:
           node-version-file: .nvmrc
           package-manager-cache: false
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run build:registry
+      # The CLI (strict: it fails unless our packages are published and
+      # locked) and registry/dist.
+      - run: pnpm run build
+      - run: pnpm run check:blocks
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: registry
