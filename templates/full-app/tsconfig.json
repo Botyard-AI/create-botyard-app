@@ -1,4 +1,10 @@
 {
   "files": [],
-  "references": [{ "path": "./tsconfig.node.json" }, { "path": "./tsconfig.ui.json" }]
+  "references": [{ "path": "./tsconfig.node.json" }, { "path": "./tsconfig.ui.json" }],
+  // shadcn reads the "@/*" alias from this file to place added components in
+  // src/; tsconfig.ui.json has the same paths for the compiler.
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] }
+  }
 }

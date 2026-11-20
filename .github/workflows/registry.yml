@@ -1,0 +1,98 @@
+name: Publish blocks
+
+# Publishes the block registry in registry/ to https://blocks.botyard.io, where
+# `npx shadcn add @botyard/<block>` fetches /r/<block>.json. See docs/blocks.md.
+#
+# - Started by hand from main. Blocks reach main only after CI has added each
+#   one to a generated app and run its checks (scripts/check-blocks.mjs).
+# - build: read-only, no secrets. Builds registry/dist with shadcn.
+# - publish: the only job with a secret, gated by the blocks-publish
+#   environment (main only, team approval, no self-review). Deploys
+#   registry/dist as the static assets of the botyard-blocks Worker
+#   (registry/wrangler.jsonc). Its Cloudflare token can deploy that one Worker
+#   and nothing else; Terraform in the Botyard monorepo owns the hostname.
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+# One publish at a time; never cancel one mid-deploy.
+concurrency:
+  group: registry-publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.1
+      # No dependency cache when publishing: a poisoned cache must not reach users.
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:registry
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: registry
+          path: registry/dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: blocks-publish
+    permissions:
+      contents: read
+    steps:
+      # For registry/wrangler.jsonc and wrangler, pinned by pnpm-lock.yaml.
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      # Runs no install scripts (pnpm-workspace.yaml).
+      - run: pnpm install --frozen-lockfile
+      # Exactly the files the build job made.
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: registry
+          path: registry/dist
+      - name: Deploy
+        working-directory: registry
+        run: pnpm exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: "false"
+      - name: Check blocks.botyard.io serves this build
+        run: |
+          for file in registry/dist/r/*.json; do
+            url="https://blocks.botyard.io/r/$(basename "$file")"
+            for attempt in 1 2 3 4 5 6; do
+              if curl -fsS "$url" | cmp -s - "$file"; then
+                echo "ok $url"
+                continue 2
+              fi
+              echo "attempt $attempt: $url does not serve this build yet"
+              sleep 10
+            done
+            echo "::error::$url does not serve this build"
+            exit 1
+          done
