@@ -1,6 +1,6 @@
 {
   "name": "@botyard/botpage",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Viewer identity, membership guards and deeplinks for apps served as Botyard Bot Pages.",
   "license": "Apache-2.0",
   "repository": {
