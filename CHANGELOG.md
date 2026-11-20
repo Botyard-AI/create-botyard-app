@@ -42,26 +42,31 @@ Packages are released separately. A release section is headed
   then `npm run expose` from a second shell).
 - `create-botyard-app`: branded README on npm, with the Botyard logo, badges,
   and links to the source, changelog and Botyard docs.
-- `@botyard/botpage`: branded README on npm, with the Botyard logo, badges,
-  and links to the source, changelog and Botyard docs.
 - `create-botyard-app`: the quick start in this README and in the generated
   app's README installs with `npm ci --include=dev`, so the test and build
   tools are installed even where `NODE_ENV=production`, as inside a bot. It
   also runs `dev` and `expose` in separate shells, and the generated app's
   README gets a Troubleshooting section.
-- `@botyard/botpage`: the README no longer says deep links are unusable.
-  `list_navigation_destinations` now returns route templates, so
-  `deeplinks.resolve()` builds links.
-- `@botyard/botpage`: exported object types are declared with `type` instead
-  of `interface`, as the Botyard TypeScript standard requires. Nothing changes
-  at runtime, and the emitted JavaScript is the same. For TypeScript users,
-  these types can no longer be extended through declaration merging.
 
 ### Security
 
 - `create-botyard-app`: the generated app pins `minimatch` 11.0.1 for
   typescript-eslint and eslint-plugin-sonarjs through an `overrides` entry,
   clearing GHSA-g3hv-75wg-m249 (moderate; development tools only).
+
+## [@botyard/botpage@0.1.1] - 2026-11-20
+
+### Changed
+
+- Branded README on npm, with the Botyard logo, badges, and links to the
+  source, changelog and Botyard docs.
+- The README no longer says deep links are unusable.
+  `list_navigation_destinations` now returns route templates, so
+  `deeplinks.resolve()` builds links.
+- Exported object types are declared with `type` instead of `interface`, as
+  the Botyard TypeScript standard requires. Nothing changes at runtime, and the
+  emitted JavaScript is the same. For TypeScript users, these types can no
+  longer be extended through declaration merging.
 
 ## [@botyard/runtime@0.1.2] - 2026-11-20
 
