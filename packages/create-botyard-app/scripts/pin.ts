@@ -130,22 +130,27 @@ async function pinnedVersion(
   )
 }
 
-const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/
+/** A stable release, `x.y.z` with no leading zeros, prerelease or build metadata. */
+const STABLE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 
 /**
- * Whether `version` is strictly ahead of `latest` by semver precedence. A
- * prerelease of the same x.y.z, or anything unparseable, is not ahead.
+ * Whether `version` is a stable release strictly ahead of `latest`, also a
+ * stable release. Our packages only release stable `x.y.z` versions (the
+ * template test requires it), so anything else, including valid prereleases
+ * and build metadata, is not ahead and gets the strict check.
  */
 export function isAhead(version: string, latest: string): boolean {
-  const a = SEMVER.exec(version)
-  const b = SEMVER.exec(latest)
+  const a = STABLE.exec(version)
+  const b = STABLE.exec(latest)
   if (a === null || b === null) return false
   for (const i of [1, 2, 3]) {
-    const diff = Number(a[i]) - Number(b[i])
-    if (diff !== 0) return diff > 0
+    const x = a[i] ?? ""
+    const y = b[i] ?? ""
+    // No leading zeros, so a longer numeral is larger; compared as strings so
+    // numerals past Number.MAX_SAFE_INTEGER still order exactly.
+    if (x !== y) return x.length !== y.length ? x.length > y.length : x > y
   }
-  // Same x.y.z: only a release is ahead of its own prerelease.
-  return a[4] === undefined && b[4] !== undefined
+  return false
 }
 
 async function checkLockfile(

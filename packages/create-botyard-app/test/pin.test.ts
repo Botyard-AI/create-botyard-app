@@ -205,13 +205,26 @@ test.each([
   ["0.2.0", "0.1.9", true],
   ["1.0.0", "0.9.9", true],
   ["0.1.10", "0.1.9", true],
-  ["1.0.0", "1.0.0-rc.1", true],
+  ["0.10.0", "0.9.0", true],
+  ["0.1.9007199254740993", "0.1.9007199254740992", true],
   ["0.1.1", "0.1.1", false],
   ["0.1.0", "0.1.1", false],
+  ["0.1.9", "0.1.10", false],
+  // Only stable x.y.z on both sides; everything else gets the strict check.
+  ["1.0.0", "1.0.0-rc.1", false],
   ["1.0.0-rc.1", "1.0.0", false],
   ["1.0.0-rc.2", "1.0.0-rc.1", false],
+  ["0.1.2-rc.1", "0.1.1", false],
+  ["0.1.2+build", "0.1.1", false],
+  ["0.1.2-.", "0.1.1", false],
+  ["0.01.2", "0.1.1", false],
+  ["0.1.02", "0.1.1", false],
+  ["v0.1.2", "0.1.1", false],
+  [" 0.1.2", "0.1.1", false],
+  ["0.1.2\n", "0.1.1", false],
   ["0.1", "0.1.1", false],
   ["0.1.2", "latest", false],
+  ["0.1.2", "", false],
 ])("isAhead(%s, %s) is %s", (version, latest, expected) => {
   expect(isAhead(version, latest)).toBe(expected)
 })
