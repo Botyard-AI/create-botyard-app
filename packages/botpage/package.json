@@ -60,7 +60,7 @@
   "devDependencies": {
     "@botyard/eslint-config": "workspace:*",
     "@hono/node-server": "^2.1.8",
-    "@types/node": "^22.19.0",
+    "@types/node": "^26.6.6",
     "eslint": "^10.15.0",
     "hono": "^4.13.0",
     "typescript": "5.9.3",
