@@ -14,7 +14,9 @@ set -uo pipefail
 REPO="${REPO:-Botyard-AI/create-botyard-app}"
 ORG="${REPO%%/*}"
 TEAM="${TEAM:-create-botyard-app-maintainers}"
-ENVIRONMENT="${ENVIRONMENT:-npm-publish}"
+# npm-publish: release.yml publishes to npm. blocks-publish: registry.yml
+# deploys https://blocks.botyard.io.
+ENVIRONMENTS="${ENVIRONMENTS:-npm-publish blocks-publish}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 failures=0
 
@@ -106,8 +108,9 @@ step "actions: approval required for every outside contributor's workflow run" \
 
 # ---------------------------------------------------------------- environment
 team_id="$(gh api "orgs/$ORG/teams/$TEAM" --jq .id 2>/dev/null || echo '')"
-step "environment $ENVIRONMENT: main only, team approval, no self-review" \
-  api -X PUT "repos/$REPO/environments/$ENVIRONMENT" --input - <<JSON
+for environment in $ENVIRONMENTS; do
+  step "environment $environment: main only, team approval, no self-review" \
+    api -X PUT "repos/$REPO/environments/$environment" --input - <<JSON
 {
   "wait_timer": 0,
   "prevent_self_review": true,
@@ -115,8 +118,9 @@ step "environment $ENVIRONMENT: main only, team approval, no self-review" \
   "deployment_branch_policy": { "protected_branches": false, "custom_branch_policies": true }
 }
 JSON
-step "environment $ENVIRONMENT: allow branch main" \
-  sh -c "gh api repos/$REPO/environments/$ENVIRONMENT/deployment-branch-policies --jq '.branch_policies[].name' | grep -qx main || gh api --silent -X POST repos/$REPO/environments/$ENVIRONMENT/deployment-branch-policies -f name=main -f type=branch"
+  step "environment $environment: allow branch main" \
+    sh -c "gh api repos/$REPO/environments/$environment/deployment-branch-policies --jq '.branch_policies[].name' | grep -qx main || gh api --silent -X POST repos/$REPO/environments/$environment/deployment-branch-policies -f name=main -f type=branch"
+done
 
 # ---------------------------------------------------------------- rulesets
 for file in "$ROOT"/.github/rulesets/*.json; do

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "name": "botyard",
+  "homepage": "https://blocks.botyard.io",
+  "items": [
+    {
+      "name": "greeting",
+      "type": "registry:block",
+      "title": "Greeting",
+      "description": "A sample block: a server helper, a React component and a test. It shows how a block ships files outside src/components.",
+      "files": [
+        {
+          "path": "registry/blocks/greeting/server/greeting.ts",
+          "type": "registry:file",
+          "target": "~/server/greeting.ts"
+        },
+        {
+          "path": "registry/blocks/greeting/components/greeting.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/blocks/greeting/test/greeting.test.ts",
+          "type": "registry:file",
+          "target": "~/test/greeting.test.ts"
+        }
+      ]
+    }
+  ]
+}

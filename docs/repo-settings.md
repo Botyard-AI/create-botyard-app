@@ -23,6 +23,7 @@ after any PR that changes these files.
 | Actions | Approval required for every outside contributor's workflow run | Outside code never runs unattended |
 | Security | Secret scanning + push protection, Dependabot alerts + security updates, private vulnerability reporting, CodeQL | Standard for a public package |
 | Environment `npm-publish` | `main` only, team approval, no self-review | Human sign-off on every release |
+| Environment `blocks-publish` | `main` only, team approval, no self-review | Human sign-off on every publish of `blocks.botyard.io` ([blocks.md](./blocks.md)) |
 
 ## Manual steps (not scriptable)
 
@@ -43,5 +44,9 @@ after any PR that changes these files.
 4. **Pull request access.** If the org has GitHub's option to limit who can open
    pull requests, set it to collaborators only. Otherwise external PRs are
    closed by hand, per `CONTRIBUTING.md`.
-5. **Org policy (recommended).** Require 2FA for the GitHub org, and require
+5. **Blocks registry.** In the `blocks-publish` environment, add the secret
+   `CLOUDFLARE_API_TOKEN` (the deploy token for the `botyard-blocks` Worker,
+   from the Botyard monorepo's `infra/blocks-registry`) and the variable
+   `CLOUDFLARE_ACCOUNT_ID`. Never as repository secrets. See [blocks.md](./blocks.md).
+6. **Org policy (recommended).** Require 2FA for the GitHub org, and require
    actions to be pinned to full SHAs across the org.

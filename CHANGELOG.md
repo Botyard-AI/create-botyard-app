@@ -26,6 +26,16 @@ Packages are released separately. A release section is headed
   the release workflow run them.
 - GitHub releases get a branded header and footer around the changelog
   section, with install, provenance and docs links.
+- Blocks: a shadcn registry in `registry/`, published to
+  `https://blocks.botyard.io` by `registry.yml` behind the `blocks-publish`
+  environment. CI adds each block to a generated app and runs its checks. See
+  `docs/blocks.md`.
+
+### Fixed
+
+- create-botyard-app (full-app template): `npx shadcn add` put components in a
+  `@/components` directory in the app root instead of `src/components`. The
+  root `tsconfig.json` now has the `@/*` alias that shadcn reads.
 
 ## [create-botyard-app@0.1.1] - 2026-11-20
 

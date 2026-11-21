@@ -76,6 +76,8 @@ platform tools assigned to your bot.
 
 The template the scaffolder ships is in [`templates/full-app`](./templates/full-app#readme).
 [`examples/`](./examples#readme) holds apps built on the packages as published on npm.
+[`registry/`](./registry) holds Botyard blocks, published to `https://blocks.botyard.io` for
+`npx shadcn add @botyard/<block>`; see [docs/blocks.md](./docs/blocks.md).
 
 ## Learn more
 

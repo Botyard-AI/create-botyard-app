@@ -1,0 +1,16 @@
+// The Worker that serves https://blocks.botyard.io: static assets only, no
+// code. registry.yml deploys it with `wrangler deploy` from main, behind the
+// blocks-publish environment. The hostname, the Worker itself and its narrow
+// deploy token are managed by Terraform in the Botyard monorepo
+// (infra/blocks-registry); the token is bound to this Worker's name.
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "botyard-blocks",
+  "compatibility_date": "2026-11-17",
+  // Only blocks.botyard.io serves it: no *.workers.dev or preview URLs, and no
+  // routes here, since Terraform owns the hostname.
+  "workers_dev": false,
+  "preview_urls": false,
+  // `pnpm run build:registry` writes dist/r/<block>.json.
+  "assets": { "directory": "./dist" },
+}
