@@ -5,8 +5,9 @@ import {
   parseApprovalResponse,
   parseApprovalsResponse,
   parseDecidedResponse,
-  type ApprovalRequest,
+  type ApprovalResponse,
   type ApprovalsResponse,
+  type DecidedResponse,
   type DecideApproval,
   type DecideApprovals,
   type NewApproval,
@@ -42,8 +43,8 @@ export function useApprovals(): { state: ApprovalsState; reload: () => void } {
 }
 
 /** POST /api/approvals. Throws with the server's message when it refuses. */
-export async function requestApproval(body: NewApproval): Promise<ApprovalRequest> {
-  return parseApprovalResponse(await postJson("/api/approvals", body)).request
+export async function requestApproval(body: NewApproval): Promise<ApprovalResponse> {
+  return parseApprovalResponse(await postJson("/api/approvals", body))
 }
 
 /**
@@ -52,9 +53,9 @@ export async function requestApproval(body: NewApproval): Promise<ApprovalReques
  */
 export async function decideApprovals(
   decisions: readonly DecideApproval[]
-): Promise<readonly ApprovalRequest[]> {
+): Promise<DecidedResponse> {
   const body: DecideApprovals = { decisions }
-  return parseDecidedResponse(await postJson("/api/approvals/decide", body)).requests
+  return parseDecidedResponse(await postJson("/api/approvals/decide", body))
 }
 
 export function errorMessage(err: unknown): string {

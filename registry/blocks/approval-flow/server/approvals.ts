@@ -119,7 +119,8 @@ export class ApprovalStore {
    * of the requests is kept, and the caller may simply try again. Once the file is replaced
    * the change is made, and `put` does not throw. It returns `durable:
    * false` when the directory could not be flushed: the change stands, but
-   * a power cut before the disk catches up could still undo it.
+   * a power cut before the disk catches up could still undo it. A store
+   * with no file always answers `durable: false`: a restart loses it.
    */
   put(requests: readonly ApprovalRequest[]): { durable: boolean } {
     const before = new Map(this.#requests)
@@ -221,8 +222,8 @@ export function approvalRoutes({ botpage, tools, store }: ApprovalDeps): Record<
         status: "pending",
         history: [event("requested", requestedBy, "")],
       }
-      store.put([request])
-      return { request }
+      const { durable } = store.put([request])
+      return { durable, request }
     }),
 
     // A list of decisions, so an approver can clear several at once. All or
@@ -248,8 +249,8 @@ export function approvalRoutes({ botpage, tools, store }: ApprovalDeps): Record<
           history: [...current.history, event(outcome, by, note)],
         }
       })
-      store.put(decided)
-      return { requests: decided }
+      const { durable } = store.put(decided)
+      return { durable, requests: decided }
     }),
   }
 }

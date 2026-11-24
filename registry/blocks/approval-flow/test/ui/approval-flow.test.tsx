@@ -1,10 +1,12 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
-import { ApprovalList, RequestApprovalForm } from "@/components/approval-flow"
+import { ApprovalList, NotDurableWarning, RequestApprovalForm } from "@/components/approval-flow"
 import {
   DECISION_OUTCOME,
   LIMITS,
+  parseApprovalResponse,
   parseApprovalsResponse,
+  parseDecidedResponse,
   parseDecideApprovals,
   parseNewApproval,
   type ApprovalRequest,
@@ -32,9 +34,7 @@ const approved: ApprovalRequest = {
 }
 
 function render(requests: readonly ApprovalRequest[], me: string): string {
-  return renderToStaticMarkup(
-    <ApprovalList requests={requests} me={me} onDecided={() => undefined} />
-  )
+  return renderToStaticMarkup(<ApprovalList requests={requests} me={me} onDone={() => undefined} />)
 }
 
 describe("ApprovalList", () => {
@@ -64,8 +64,16 @@ describe("ApprovalList", () => {
 
 describe("RequestApprovalForm", () => {
   test("tells the requester who will see the request", () => {
-    const html = renderToStaticMarkup(<RequestApprovalForm onRequested={() => undefined} />)
+    const html = renderToStaticMarkup(<RequestApprovalForm onDone={() => undefined} />)
     expect(html).toContain("Everyone in your org can see this request")
+  })
+})
+
+describe("NotDurableWarning", () => {
+  test("says the change is made and must not be sent again", () => {
+    const html = renderToStaticMarkup(<NotDurableWarning />)
+    expect(html).toContain("Do not send it again")
+    expect(html).toContain('role="status"')
   })
 })
 
@@ -81,6 +89,9 @@ describe("the contract", () => {
 
   test("rejects malformed answers and bodies", () => {
     expect(() => parseApprovalsResponse({ me: "x" })).toThrow()
+    // A change's answer must say whether it is durable.
+    expect(() => parseApprovalResponse({ request: approved })).toThrow("durable")
+    expect(() => parseDecidedResponse({ requests: [] })).toThrow("durable")
     const noStatus = { ...pending, status: undefined }
     expect(() => parseApprovalsResponse({ me: "x", requests: [noStatus] })).toThrow("status")
     expect(() => parseNewApproval({ title: "t", details: "" })).toThrow("approverId")

@@ -338,7 +338,23 @@ describe("when saving fails", () => {
     })
   })
 
-  test("after the rename: the change stands and the request succeeds, so nobody retries", async () => {
+  test("a normal save: 200 with durable true; a store with no file is never durable", async () => {
+    await inTempDir(async (dir) => {
+      const onDisk = await serveApprovals(new ApprovalStore(path.join(dir, "approvals.json")))
+      const asked = await onDisk.as("ada@example.com", "POST", "/api/approvals", ASK)
+      const { durable, request } = parseApprovalResponse(await asked.json())
+      expect(durable).toBe(true)
+      const decided = await onDisk.as("grace@example.com", "POST", "/api/approvals/decide", {
+        decisions: [{ id: request.id, decision: "approve", note: "" }],
+      })
+      expect(parseDecidedResponse(await decided.json()).durable).toBe(true)
+    })
+    const inMemory = await serveApprovals(new ApprovalStore(null))
+    const res = await inMemory.as("ada@example.com", "POST", "/api/approvals", ASK)
+    expect(parseApprovalResponse(await res.json()).durable).toBe(false)
+  })
+
+  test("after the rename: 200 with durable false, and the change stands", async () => {
     vi.spyOn(process.stderr, "write").mockReturnValue(true)
     await inTempDir(async (dir) => {
       const file = path.join(dir, "approvals.json")
@@ -347,16 +363,25 @@ describe("when saving fails", () => {
       }
       const store = new ApprovalStore(file, { syncDir: failingFlush })
       const { as } = await serveApprovals(store)
-      const res = await as("ada@example.com", "POST", "/api/approvals", ASK)
-      expect(res.status).toBe(200)
-      expect(store.size).toBe(1)
+      const asked = await as("ada@example.com", "POST", "/api/approvals", ASK)
+      expect(asked.status).toBe(200)
+      const { durable, request } = parseApprovalResponse(await asked.json())
+      expect(durable).toBe(false)
       expect(new ApprovalStore(file).size).toBe(1)
+
+      const decided = await as("grace@example.com", "POST", "/api/approvals/decide", {
+        decisions: [{ id: request.id, decision: "approve", note: "" }],
+      })
+      expect(decided.status).toBe(200)
+      expect(parseDecidedResponse(await decided.json()).durable).toBe(false)
+      expect(new ApprovalStore(file).get(request.id)?.status).toBe("approved")
     })
   })
 
   test("put says whether the change is durable", async () => {
     await inTempDir(async (dir) => {
       const request = parseApprovalResponse({
+        durable: true,
         request: {
           id: "r1",
           title: "t",

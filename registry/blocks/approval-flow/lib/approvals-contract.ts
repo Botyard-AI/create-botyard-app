@@ -46,11 +46,18 @@ export type ApprovalsResponse = {
   readonly requests: readonly ApprovalRequest[]
 }
 
+/**
+ * Every change is answered with `durable`. Both values mean the change is
+ * made: do not send it again. `false` means the server could not confirm it
+ * reached the disk, so a power cut soon after could still undo it.
+ */
+type Saved = { readonly durable: boolean }
+
 /** POST /api/approvals answers with the new request. */
-export type ApprovalResponse = { readonly request: ApprovalRequest }
+export type ApprovalResponse = Saved & { readonly request: ApprovalRequest }
 
 /** POST /api/approvals/decide answers with the decided requests, in the order sent. */
-export type DecidedResponse = { readonly requests: readonly ApprovalRequest[] }
+export type DecidedResponse = Saved & { readonly requests: readonly ApprovalRequest[] }
 
 /** POST /api/approvals: ask a member to approve something. */
 export type NewApproval = {
@@ -120,11 +127,13 @@ export function parseApprovalsResponse(body: unknown): ApprovalsResponse {
 }
 
 export function parseDecidedResponse(body: unknown): DecidedResponse {
-  return { requests: parseApprovalRequests(record(body, "response")["requests"]) }
+  const r = record(body, "response")
+  return { durable: bool(r, "durable", "response"), requests: parseApprovalRequests(r["requests"]) }
 }
 
 export function parseApprovalResponse(body: unknown): ApprovalResponse {
-  return { request: parseRequest(record(body, "response")["request"], "request") }
+  const r = record(body, "response")
+  return { durable: bool(r, "durable", "response"), request: parseRequest(r["request"], "request") }
 }
 
 /** A saved list of requests, as server/approvals.ts writes it to disk. */
@@ -182,6 +191,12 @@ function text(r: Record<string, unknown>, key: string, where: string, max?: numb
   if (max !== undefined && value.length > max) {
     throw new ContractError(`${where}.${key}: longer than ${String(max)} characters`)
   }
+  return value
+}
+
+function bool(r: Record<string, unknown>, key: string, where: string): boolean {
+  const value = r[key]
+  if (typeof value !== "boolean") throw new ContractError(`${where}.${key}: not true or false`)
   return value
 }
 

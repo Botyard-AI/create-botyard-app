@@ -19,11 +19,22 @@ const button =
 const secondaryButton =
   "bg-secondary text-secondary-foreground rounded-md px-3 py-1.5 text-sm font-medium disabled:opacity-50"
 
+/** How a request or decision ended, for the list to refresh and warn. */
+export type Outcome =
+  { readonly saved: true; readonly durable: boolean } | { readonly saved: false }
+
 export function ApprovalFlow() {
   const { state, reload } = useApprovals()
+  const [notDurable, setNotDurable] = useState(false)
+  // After every attempt, saved or not, show what the server has now.
+  const after = (outcome: Outcome): void => {
+    if (outcome.saved) setNotDurable(!outcome.durable)
+    reload()
+  }
   return (
     <div className="grid gap-6">
-      <RequestApprovalForm onRequested={reload} />
+      {notDurable && <NotDurableWarning />}
+      <RequestApprovalForm onDone={after} />
       {state.status === "loading" && (
         <p className="text-muted-foreground animate-pulse text-sm" aria-busy="true">
           Loading requests…
@@ -35,18 +46,27 @@ export function ApprovalFlow() {
         </p>
       )}
       {state.status === "ready" && (
-        <ApprovalList
-          requests={state.approvals.requests}
-          me={state.approvals.me}
-          onDecided={reload}
-        />
+        <ApprovalList requests={state.approvals.requests} me={state.approvals.me} onDone={after} />
       )}
     </div>
   )
 }
 
+/**
+ * Shown when the server recorded a change but could not confirm it reached
+ * the disk. The change is made: sending it again would make it twice.
+ */
+export function NotDurableWarning() {
+  return (
+    <p className="rounded-md border border-amber-500/50 p-3 text-sm" role="status">
+      Saved, but the server could not confirm it is safely on disk. Do not send it again. If the
+      server restarts soon, check that it is still here, and tell whoever runs this app.
+    </p>
+  )
+}
+
 /** Title, details and an approver; sends POST /api/approvals. */
-export function RequestApprovalForm({ onRequested }: { readonly onRequested: () => void }) {
+export function RequestApprovalForm({ onDone }: { readonly onDone: (outcome: Outcome) => void }) {
   const members = useOrgMembers()
   const [title, setTitle] = useState("")
   const [details, setDetails] = useState("")
@@ -60,15 +80,14 @@ export function RequestApprovalForm({ onRequested }: { readonly onRequested: () 
     setBusy(true)
     setError(null)
     try {
-      await requestApproval({ title, details, approverId })
+      const { durable } = await requestApproval({ title, details, approverId })
       setTitle("")
       setDetails("")
       setApproverId(null)
-      onRequested()
+      onDone({ saved: true, durable })
     } catch (err) {
       setError(errorMessage(err))
-      // Show what the server has now, before anyone tries again.
-      onRequested()
+      onDone({ saved: false })
     } finally {
       setBusy(false)
     }
@@ -144,11 +163,11 @@ export function RequestApprovalForm({ onRequested }: { readonly onRequested: () 
 export function ApprovalList({
   requests,
   me,
-  onDecided,
+  onDone,
 }: {
   readonly requests: readonly ApprovalRequest[]
   readonly me: string
-  readonly onDecided: () => void
+  readonly onDone: (outcome: Outcome) => void
 }) {
   if (requests.length === 0) {
     return <p className="text-muted-foreground text-sm">No approval requests yet.</p>
@@ -157,7 +176,7 @@ export function ApprovalList({
     <ul className="grid gap-4">
       {requests.map((request) => (
         <li key={request.id}>
-          <ApprovalCard request={request} me={me} onDecided={onDecided} />
+          <ApprovalCard request={request} me={me} onDone={onDone} />
         </li>
       ))}
     </ul>
@@ -173,11 +192,11 @@ const STATUS_LABEL: Record<ApprovalStatus, string> = {
 function ApprovalCard({
   request,
   me,
-  onDecided,
+  onDone,
 }: {
   readonly request: ApprovalRequest
   readonly me: string
-  readonly onDecided: () => void
+  readonly onDone: (outcome: Outcome) => void
 }) {
   const mine = request.status === "pending" && request.approver.userId === me
   return (
@@ -195,7 +214,7 @@ function ApprovalCard({
       </CardHeader>
       <CardContent className="grid gap-4 text-sm">
         {request.details !== "" && <p className="whitespace-pre-wrap">{request.details}</p>}
-        {mine && <DecideControls id={request.id} onDecided={onDecided} />}
+        {mine && <DecideControls id={request.id} onDone={onDone} />}
         <ol className="text-muted-foreground grid gap-1 border-l pl-3 text-xs" aria-label="History">
           {request.history.map((event, i) => (
             <li key={i}>
@@ -213,10 +232,10 @@ function ApprovalCard({
 /** The approver's note and buttons; sends POST /api/approvals/decide. */
 function DecideControls({
   id,
-  onDecided,
+  onDone,
 }: {
   readonly id: string
-  readonly onDecided: () => void
+  readonly onDone: (outcome: Outcome) => void
 }) {
   const [note, setNote] = useState("")
   const [busy, setBusy] = useState(false)
@@ -226,13 +245,13 @@ function DecideControls({
     setBusy(true)
     setError(null)
     try {
-      await decideApprovals([{ id, decision, note }])
-      onDecided()
+      const { durable } = await decideApprovals([{ id, decision, note }])
+      onDone({ saved: true, durable })
     } catch (err) {
       setError(errorMessage(err))
       setBusy(false)
-      // Show what the server has now: someone may have decided it already.
-      onDecided()
+      // Someone may have decided it already: the refresh shows it.
+      onDone({ saved: false })
     }
   }
 
