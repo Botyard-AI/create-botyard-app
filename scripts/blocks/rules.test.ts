@@ -4,6 +4,7 @@ import type { LockEntry } from "./json.ts"
 import { lockEntries } from "./json.ts"
 import {
   installablePins,
+  localRegistry,
   newInstallScripts,
   npmDependencies,
   parseBlock,
@@ -216,5 +217,27 @@ describe("splitSpec", () => {
   it("splits scoped and unscoped names", () => {
     assert.deepEqual(splitSpec("@scope/pkg@1.2.3"), ["@scope/pkg", "1.2.3"])
     assert.deepEqual(splitSpec("pkg@1.2.3"), ["pkg", "1.2.3"])
+  })
+})
+
+describe("localRegistry", () => {
+  const published = { registries: { "@botyard": "https://blocks.botyard.io/r/{name}.json" } }
+
+  it("swaps the host of the published registry", () => {
+    assert.equal(
+      localRegistry(published, "http://127.0.0.1:4000"),
+      "http://127.0.0.1:4000/r/{name}.json"
+    )
+  })
+
+  it("refuses an app without the published registry", () => {
+    for (const components of [
+      {},
+      { registries: {} },
+      { registries: { "@botyard": "https://blocks.botyard.io/{name}.json" } },
+      { registries: { "@botyard": "http://blocks.botyard.io/r/{name}.json" } },
+    ]) {
+      assert.throws(() => localRegistry(components, "http://127.0.0.1:4000"), /registries/)
+    }
   })
 })

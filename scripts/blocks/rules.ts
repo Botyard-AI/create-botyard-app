@@ -25,6 +25,27 @@ import type { LockEntry } from "./json.ts"
 
 export const NAMESPACE = "@botyard"
 
+const PUBLISHED_ORIGIN = "https://blocks.botyard.io"
+/** The @botyard registry as a generated app's components.json names it. */
+export const PUBLISHED_REGISTRY = `${PUBLISHED_ORIGIN}/r/{name}.json`
+
+/**
+ * The generated app's own @botyard registry, served from `origin` instead
+ * of https://blocks.botyard.io. The app must name the published registry
+ * exactly, so checking a block this way checks what a user's
+ * `npx shadcn add @botyard/<block>` resolves, with only the host changed.
+ */
+export function localRegistry(components: unknown, origin: string): string {
+  const registries = object(components, "components.json")["registries"]
+  const url = registries === undefined ? undefined : object(registries, "registries")[NAMESPACE]
+  if (url !== PUBLISHED_REGISTRY) {
+    throw new Error(
+      `components.json registries["${NAMESPACE}"] is ${JSON.stringify(url)}, not "${PUBLISHED_REGISTRY}"`
+    )
+  }
+  return `${origin}${PUBLISHED_REGISTRY.slice(PUBLISHED_ORIGIN.length)}`
+}
+
 /** The parts of a built registry item (r/<name>.json) the rules look at. */
 export type Block = {
   readonly name: string

@@ -5,9 +5,10 @@
 // For each block:
 // 1. Generate an app with the CLI built from this commit
 //    (packages/create-botyard-app/dist).
-// 2. Point the app's @botyard registry at the built blocks in registry/dist,
-//    the files registry.yml publishes, served on 127.0.0.1 instead of
-//    https://blocks.botyard.io.
+// 2. Check that the app's components.json names the published @botyard
+//    registry, https://blocks.botyard.io/r/{name}.json, then point it at the
+//    built blocks in registry/dist (the files registry.yml publishes), served
+//    on 127.0.0.1: the same URL with only the host changed.
 // 3. Add the block's npm dependencies to package.json and lock them with
 //    scripts/lock-template.sh --app: every third-party version is at least
 //    3 days old, and no package has an install script unless the template
@@ -16,20 +17,24 @@
 //    npm dependencies again with plain `npm install`, outside those rules, so
 //    the server leaves them out of the block, and npm is replaced by a stub
 //    that fails if shadcn runs it anyway.
-// 5. The app's lint, format:check, typecheck, test and build.
+// 5. `shadcn search @botyard` lists the block, as a bot looking for blocks
+//    would see it, from the built registry index.
+// 6. The app's lint, format:check, typecheck, test and build.
 //
 // Run `pnpm run build` first: it builds both the CLI and registry/dist.
 // Usage: node scripts/check-blocks.ts [block ...]   (default: every block)
 
-import { spawn } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
+import { promisify } from "node:util"
 import os from "node:os"
 import path from "node:path"
 import type { JsonObject } from "./blocks/json.ts"
-import { lockEntries, object, readJson, stringRecord, writeJson } from "./blocks/json.ts"
+import { isObject, lockEntries, object, readJson, stringRecord, writeJson } from "./blocks/json.ts"
 import {
   installablePins,
+  localRegistry,
   newInstallScripts,
   NAMESPACE,
   npmDependencies,
@@ -39,6 +44,7 @@ import {
 import type { Block } from "./blocks/rules.ts"
 
 const root = path.resolve(import.meta.dirname, "..")
+const built = path.join(root, "registry", "dist", "r")
 const shadcn = path.join(root, "node_modules", ".bin", "shadcn")
 const cli = path.join(root, "packages", "create-botyard-app", "dist", "bin.js")
 // CI only, as for the CLI build: see installablePins in blocks/rules.ts.
@@ -68,7 +74,7 @@ async function main(only: string[]): Promise<void> {
     if (!items.has(name)) throw new Error(`no block "${name}" in registry/registry.json`)
   }
 
-  const server = await serve(items)
+  const server = await serve(items, await readJson(path.join(built, "registry.json")))
   try {
     for (const name of names) {
       print(`::group::block ${name}`)
@@ -85,7 +91,6 @@ async function main(only: string[]): Promise<void> {
  * registry.yml publishes, so the files checked are the files published.
  */
 async function readBuiltRegistry(): Promise<Map<string, Item>> {
-  const built = path.join(root, "registry", "dist", "r")
   const source = object(
     await readJson(path.join(root, "registry", "registry.json")),
     "registry.json"
@@ -106,12 +111,22 @@ async function readBuiltRegistry(): Promise<Map<string, Item>> {
   return items
 }
 
-/** Serves each item at /r/<name>.json without its npm dependencies (see 4.). */
+/**
+ * Serves each item at /r/<name>.json without its npm dependencies (see 4.),
+ * and the index `shadcn search` reads at /r/registry.json.
+ */
 async function serve(
-  items: ReadonlyMap<string, Item>
+  items: ReadonlyMap<string, Item>,
+  index: unknown
 ): Promise<{ url: string; close: () => void }> {
   const server = createServer((req, res) => {
-    const name = /^\/r\/([a-z0-9-]+)\.json$/.exec(req.url ?? "")?.[1]
+    // Like a static host, ignore the query: `shadcn search` adds ?limit=&offset=.
+    const [pathname = ""] = (req.url ?? "").split("?")
+    if (pathname === "/r/registry.json") {
+      res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(index))
+      return
+    }
+    const name = /^\/r\/([a-z0-9-]+)\.json$/.exec(pathname)?.[1]
     const item = name === undefined ? undefined : items.get(name)
     if (item === undefined) {
       res.writeHead(404).end()
@@ -135,7 +150,7 @@ async function serve(
 async function checkBlock(
   name: string,
   blocks: ReadonlyMap<string, Block>,
-  registryUrl: string
+  registryOrigin: string
 ): Promise<void> {
   const app = path.join(work, "apps", name)
   const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: "development" }
@@ -163,7 +178,7 @@ async function checkBlock(
   const components = object(await readJson(componentsFile), componentsFile)
   await writeJson(componentsFile, {
     ...components,
-    registries: { [NAMESPACE]: `${registryUrl}/r/{name}.json` },
+    registries: { [NAMESPACE]: localRegistry(components, registryOrigin) },
   })
 
   const needs = npmDependencies(name, blocks)
@@ -200,10 +215,25 @@ async function checkBlock(
   if ((await readFile(pkgFile, "utf8")) !== pkgBefore) {
     throw new Error(`shadcn add ${NAMESPACE}/${name} changed package.json`)
   }
+  if (!(await searchFinds(app, `${NAMESPACE}/${name}`))) {
+    throw new Error(`shadcn search ${NAMESPACE} does not list ${NAMESPACE}/${name}`)
+  }
 
   for (const script of ["lint", "format:check", "typecheck", "test", "build"]) {
     await run("npm", ["run", script], { cwd: app, env })
   }
+}
+
+/** Whether `shadcn search @botyard`, run in the app, lists `address`. */
+async function searchFinds(app: string, address: string): Promise<boolean> {
+  const { stdout } = await promisify(execFile)(shadcn, ["search", NAMESPACE, "--json"], {
+    cwd: app,
+  })
+  const items: unknown = object(JSON.parse(stdout), "shadcn search output")["items"]
+  return (
+    Array.isArray(items) &&
+    items.some((item: unknown) => isObject(item) && item["addCommandArgument"] === address)
+  )
 }
 
 /** A directory of npm, pnpm, yarn and bun stubs that fail when run. */
