@@ -61,6 +61,11 @@ const MAX_BODY = 64 * 1024
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>
 
 /** A request the API refuses, with the HTTP status and a message for the person. */
+/** The store could not replace its file. Nothing was changed, so trying again is safe. */
+export class StoreWriteError extends Error {
+  override name = "StoreWriteError"
+}
+
 export class HttpError extends Error {
   override name = "HttpError"
   readonly status: number
@@ -74,17 +79,22 @@ export class HttpError extends Error {
 /**
  * Every request, in memory and, when given a file, on disk. Only one process
  * may use a file. Each change rewrites the whole file: a temporary file,
- * flushed, renamed over the old one, then the directory flushed, so once a
- * change is acknowledged it survives a crash or power cut, and the file is
- * never half-written.
+ * flushed, renamed over the old one, then the directory flushed. The file is
+ * never half-written, and a change survives a power cut once `put` reports
+ * it durable.
  */
 export class ApprovalStore {
   readonly #file: string | null
   readonly #requests = new Map<string, ApprovalRequest>()
+  readonly #syncDir: (dir: string) => void
 
-  /** `file` null keeps requests in memory only: they are lost when the app restarts. */
-  constructor(file: string | null) {
+  /**
+   * `file` null keeps requests in memory only: they are lost when the app
+   * restarts. `syncDir` flushes a directory to disk; tests replace it.
+   */
+  constructor(file: string | null, { syncDir = fsyncDir } = {}) {
     this.#file = file
+    this.#syncDir = syncDir
     for (const request of this.#load()) this.#requests.set(request.id, request)
   }
 
@@ -103,9 +113,15 @@ export class ApprovalStore {
 
   /**
    * Adds or replaces requests and saves them together. Synchronous, so
-   * nothing runs in between. If the save fails, none of them is kept.
+   * nothing runs in between.
+   *
+   * Throws StoreWriteError when the file could not be replaced: then none
+   * of the requests is kept, and the caller may simply try again. Once the file is replaced
+   * the change is made, and `put` does not throw. It returns `durable:
+   * false` when the directory could not be flushed: the change stands, but
+   * a power cut before the disk catches up could still undo it.
    */
-  put(requests: readonly ApprovalRequest[]): void {
+  put(requests: readonly ApprovalRequest[]): { durable: boolean } {
     const before = new Map(this.#requests)
     for (const request of requests) this.#requests.set(request.id, request)
     try {
@@ -114,11 +130,20 @@ export class ApprovalStore {
       // The file still holds the old list: so must memory.
       this.#requests.clear()
       for (const [id, request] of before) this.#requests.set(id, request)
-      throw err
+      throw new StoreWriteError(`could not save ${String(this.#file)}`, { cause: err })
     }
-    // The file holds the new list now. If this fails, the change is kept,
-    // but a power cut could still undo it, so the request fails loudly.
-    this.#syncDir()
+    if (this.#file === null) return { durable: false }
+    try {
+      this.#syncDir(path.dirname(this.#file))
+      return { durable: true }
+    } catch (err) {
+      // Not an error for the request: failing it would invite a retry that
+      // makes the same change twice.
+      process.stderr.write(
+        `approvals: saved, but could not flush ${path.dirname(this.#file)}: ${String(err)}\n`
+      )
+      return { durable: false }
+    }
   }
 
   #load(): ApprovalRequest[] {
@@ -148,16 +173,15 @@ export class ApprovalStore {
       throw err
     }
   }
+}
 
-  /** The rename is only safe from a power cut once the directory is flushed too. */
-  #syncDir(): void {
-    if (this.#file === null) return
-    const fd = openSync(path.dirname(this.#file), "r")
-    try {
-      fsyncSync(fd)
-    } finally {
-      closeSync(fd)
-    }
+/** Flushes a directory to disk, so a rename in it survives a power cut. */
+function fsyncDir(dir: string): void {
+  const fd = openSync(dir, "r")
+  try {
+    fsyncSync(fd)
+  } finally {
+    closeSync(fd)
   }
 }
 
@@ -271,7 +295,10 @@ function route<T>(
     } catch (err) {
       if (err instanceof HttpError) sendJson(res, err.status, { error: err.message })
       else if (err instanceof ContractError) sendJson(res, 400, { error: err.message })
-      else {
+      else if (err instanceof StoreWriteError) {
+        process.stderr.write(`approvals: ${err.message}: ${String(err.cause)}\n`)
+        sendJson(res, 503, { error: "Could not save. Nothing was changed: try again." })
+      } else {
         const failure = guardFailure(err)
         if (failure === null) throw err
         sendGuardFailure(res, failure)

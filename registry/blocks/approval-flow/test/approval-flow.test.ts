@@ -5,8 +5,8 @@ import path from "node:path"
 import { createBotPage } from "@botyard/botpage"
 import { listenLoopback } from "@botyard/botpage/node"
 import { createRuntime } from "@botyard/runtime"
-import { afterEach, describe, expect, test } from "vitest"
-import { ApprovalStore, approvalRoutes } from "../server/approvals.ts"
+import { afterEach, describe, expect, test, vi } from "vitest"
+import { ApprovalStore, StoreWriteError, approvalRoutes } from "../server/approvals.ts"
 import {
   parseApprovalResponse,
   parseApprovalsResponse,
@@ -27,6 +27,7 @@ const GRACE = {
 
 const servers: Server[] = []
 afterEach(() => {
+  vi.restoreAllMocks()
   for (const server of servers.splice(0)) server.close()
 })
 
@@ -303,10 +304,79 @@ describe("ApprovalStore", () => {
       }
       expect(() => {
         store.put([request])
-      }).toThrow()
+      }).toThrow(StoreWriteError)
       expect(store.size).toBe(0)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+// Saving replaces the file with a rename, then flushes the directory. A
+// failure before the rename changes nothing; after it, the change is made.
+describe("when saving fails", () => {
+  async function inTempDir(run: (dir: string) => Promise<void>): Promise<void> {
+    const dir = await mkdtemp(path.join(tmpdir(), "approvals-"))
+    try {
+      await run(dir)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  test("before the rename: 503, nothing kept, so trying again is safe", async () => {
+    vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    await inTempDir(async (dir) => {
+      const data = path.join(dir, "data")
+      const { as } = await serveApprovals(new ApprovalStore(path.join(data, "approvals.json")))
+      await writeFile(data, "") // a file where the data directory goes
+      const res = await as("ada@example.com", "POST", "/api/approvals", ASK)
+      expect(res.status).toBe(503)
+      expect(await res.json()).toEqual({ error: "Could not save. Nothing was changed: try again." })
+      const list = await as("ada@example.com", "GET", "/api/approvals")
+      expect(parseApprovalsResponse(await list.json()).requests).toEqual([])
+    })
+  })
+
+  test("after the rename: the change stands and the request succeeds, so nobody retries", async () => {
+    vi.spyOn(process.stderr, "write").mockReturnValue(true)
+    await inTempDir(async (dir) => {
+      const file = path.join(dir, "approvals.json")
+      const failingFlush = () => {
+        throw new Error("EIO")
+      }
+      const store = new ApprovalStore(file, { syncDir: failingFlush })
+      const { as } = await serveApprovals(store)
+      const res = await as("ada@example.com", "POST", "/api/approvals", ASK)
+      expect(res.status).toBe(200)
+      expect(store.size).toBe(1)
+      expect(new ApprovalStore(file).size).toBe(1)
+    })
+  })
+
+  test("put says whether the change is durable", async () => {
+    await inTempDir(async (dir) => {
+      const request = parseApprovalResponse({
+        request: {
+          id: "r1",
+          title: "t",
+          details: "",
+          requestedBy: { userId: "a", name: "A" },
+          approver: { userId: "b", name: "B" },
+          status: "pending",
+          history: [],
+        },
+      }).request
+      const file = path.join(dir, "approvals.json")
+      expect(new ApprovalStore(file).put([request])).toEqual({ durable: true })
+      vi.spyOn(process.stderr, "write").mockReturnValue(true)
+      const flaky = new ApprovalStore(file, {
+        syncDir: () => {
+          throw new Error("EIO")
+        },
+      })
+      expect(flaky.put([{ ...request, id: "r2" }])).toEqual({ durable: false })
+      expect(new ApprovalStore(file).size).toBe(2)
+    })
   })
 })

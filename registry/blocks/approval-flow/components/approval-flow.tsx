@@ -67,6 +67,8 @@ export function RequestApprovalForm({ onRequested }: { readonly onRequested: () 
       onRequested()
     } catch (err) {
       setError(errorMessage(err))
+      // Show what the server has now, before anyone tries again.
+      onRequested()
     } finally {
       setBusy(false)
     }
@@ -229,6 +231,8 @@ function DecideControls({
     } catch (err) {
       setError(errorMessage(err))
       setBusy(false)
+      // Show what the server has now: someone may have decided it already.
+      onDecided()
     }
   }
 
