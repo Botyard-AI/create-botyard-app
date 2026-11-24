@@ -41,11 +41,12 @@ async function serveApprovals(store = new ApprovalStore(null)) {
     },
   })
   const botpage = createBotPage({ tools, env: {} })
-  // A Map, so a request line can only find a route, never an inherited property.
+  // A Map, so a request line can only find a route, never an inherited
+  // property; the typeof check is what CodeQL recognises as a guard.
   const routes = new Map(Object.entries(approvalRoutes({ botpage, tools, store })))
   const server = createServer((req, res) => {
     const route = routes.get(`${req.method ?? ""} ${req.url ?? ""}`)
-    if (route === undefined) res.writeHead(404).end()
+    if (typeof route !== "function") res.writeHead(404).end()
     else void route(req, res)
   })
   servers.push(server)
