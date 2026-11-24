@@ -1,13 +1,8 @@
-// The org's members, as GET /api/members returns them (server/org-members.ts).
+// The org's members in the UI, read from GET /api/members (server/org-members.ts).
 import { useEffect, useState } from "react"
+import { parseMembersResponse, type MemberOption } from "@/lib/org-members-contract"
 
-/** One member of the org. */
-export type MemberOption = {
-  readonly userId: string
-  readonly name: string | null
-  readonly email: string | null
-  readonly role: string | null
-}
+export { memberLabel, type MemberOption } from "@/lib/org-members-contract"
 
 /** The member list while it loads, once it has, or when it could not be read. */
 export type MembersState =
@@ -36,36 +31,13 @@ export function useOrgMembers(): MembersState {
 }
 
 /** Reads GET /api/members. Throws when the request fails or the answer is malformed. */
-export async function fetchOrgMembers(signal?: AbortSignal): Promise<MemberOption[]> {
+export async function fetchOrgMembers(signal?: AbortSignal): Promise<readonly MemberOption[]> {
   const res = await fetch("/api/members", {
     signal: signal ?? null,
     headers: { accept: "application/json" },
   })
   if (!res.ok) throw new Error(`/api/members answered ${String(res.status)}`)
-  return parseMembers(await res.json())
-}
-
-/** Narrows untrusted JSON, `{ members: [...] }`, to a list of members. */
-export function parseMembers(body: unknown): MemberOption[] {
-  if (!isRecord(body) || !Array.isArray(body["members"])) {
-    throw new Error("/api/members: no members list")
-  }
-  return body["members"].map((value: unknown, i) => {
-    if (!isRecord(value)) throw new Error(`members[${String(i)}]: not an object`)
-    const userId = value["userId"]
-    if (typeof userId !== "string") throw new Error(`members[${String(i)}].userId: not a string`)
-    return {
-      userId,
-      name: strOrNull(value, "name", i),
-      email: strOrNull(value, "email", i),
-      role: strOrNull(value, "role", i),
-    }
-  })
-}
-
-/** What to call a member: their name, else their email, else their user id. */
-export function memberLabel(member: MemberOption): string {
-  return member.name ?? member.email ?? member.userId
+  return parseMembersResponse(await res.json()).members
 }
 
 /** The members whose name or email contains `query`, ignoring case. */
@@ -78,15 +50,4 @@ export function filterMembers(
   return members.filter((m) =>
     [m.name, m.email].some((text) => text?.toLowerCase().includes(needle) === true)
   )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function strOrNull(record: Record<string, unknown>, key: string, i: number): string | null {
-  const value = record[key]
-  if (value === null || value === undefined) return null
-  if (typeof value !== "string") throw new Error(`members[${String(i)}].${key}: not a string`)
-  return value
 }

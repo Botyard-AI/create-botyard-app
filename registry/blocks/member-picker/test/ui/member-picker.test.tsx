@@ -1,9 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
 import { MemberPicker, type MemberPickerProps } from "@/components/member-picker"
-import { filterMembers, memberLabel, parseMembers } from "@/lib/org-members"
+import { filterMembers, memberLabel } from "@/lib/org-members"
+import { parseMembersResponse } from "@/lib/org-members-contract"
 
-const members = parseMembers({
+const { members } = parseMembersResponse({
   members: [
     { userId: "user-ada", name: "Ada Lovelace", email: "ada@example.com", role: "owner" },
     { userId: "user-grace", name: "Grace Hopper", email: "grace@example.com", role: "member" },
@@ -49,14 +50,18 @@ describe("filterMembers", () => {
   })
 })
 
-describe("parseMembers", () => {
+describe("parseMembersResponse", () => {
   test("labels a member by name, email or id", () => {
     expect(members.map(memberLabel)).toEqual(["Ada Lovelace", "Grace Hopper", "user-x"])
   })
 
   test("rejects malformed answers", () => {
-    expect(() => parseMembers({})).toThrow()
-    expect(() => parseMembers({ members: [{ name: "no id" }] })).toThrow()
-    expect(() => parseMembers({ members: [{ userId: "u", email: 7 }] })).toThrow()
+    const ok = { userId: "u", name: null, email: null, role: null }
+    expect(() => parseMembersResponse({})).toThrow()
+    expect(() => parseMembersResponse({ members: [{ ...ok, userId: 7 }] })).toThrow()
+    expect(() => parseMembersResponse({ members: [{ ...ok, email: 7 }] })).toThrow()
+    // A field the server stopped sending is an error, not a silent null.
+    const noRole = { userId: "u", name: null, email: null }
+    expect(() => parseMembersResponse({ members: [noRole] })).toThrow("role: missing")
   })
 })
