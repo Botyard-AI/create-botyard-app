@@ -60,6 +60,43 @@
           "target": "~/test/ui/member-picker.test.tsx"
         }
       ]
+    },
+    {
+      "name": "approval-flow",
+      "type": "registry:block",
+      "title": "Approval flow",
+      "description": "Ask a member of your org to approve something; they approve or reject it with a note, and everyone in the org sees each request and its history.",
+      "docs": "In server/app.ts: add `tools: ToolCaller` (from @botyard/runtime) to AppOptions and pass `tools: runtime` where server/index.ts calls createApp (and `tools: mockRuntime()` in test/helpers.ts). Then add to `api`: ...approvalRoutes({ botpage, tools, store: new ApprovalStore(path.join(appRoot, \"data\", \"approvals.json\")) }), importing approvalRoutes and ApprovalStore from ./approvals.ts and appRoot from ./config.ts. Add the member picker's route too: \"GET /api/members\": orgMembersRoute(botpage). Add data/ to .gitignore. In the UI: <ApprovalFlow />. Every org member sees every request. Only the chosen approver decides; each change re-checks membership with a fresh list_org_members call. Requests are one JSON file, rewritten on each change: fine for a team, not for thousands of requests.",
+      "registryDependencies": ["@botyard/member-picker"],
+      "files": [
+        {
+          "path": "registry/blocks/approval-flow/server/approvals.ts",
+          "type": "registry:file",
+          "target": "~/server/approvals.ts"
+        },
+        {
+          "path": "registry/blocks/approval-flow/lib/approvals-contract.ts",
+          "type": "registry:lib"
+        },
+        {
+          "path": "registry/blocks/approval-flow/lib/approvals.ts",
+          "type": "registry:lib"
+        },
+        {
+          "path": "registry/blocks/approval-flow/components/approval-flow.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/blocks/approval-flow/test/approval-flow.test.ts",
+          "type": "registry:file",
+          "target": "~/test/approval-flow.test.ts"
+        },
+        {
+          "path": "registry/blocks/approval-flow/test/ui/approval-flow.test.tsx",
+          "type": "registry:file",
+          "target": "~/test/ui/approval-flow.test.tsx"
+        }
+      ]
     }
   ]
 }
