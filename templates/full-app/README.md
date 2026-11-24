@@ -64,11 +64,12 @@ service and expose it with `--persistent`.
 Blocks are ready-made pieces of a Botyard app, such as a member picker: a
 React component, the server code behind it and its tests. They come from
 the Botyard registry at `https://blocks.botyard.io`, which `components.json`
-already lists as `@botyard`. To see what is there, and to add one:
+already lists as `@botyard`. To see what is there, and to add one by its
+name from that list (here `greeting`, a small sample):
 
 ```sh
 npx shadcn@latest search @botyard
-npx shadcn@latest add @botyard/<block>
+npx shadcn@latest add @botyard/greeting
 ```
 
 shadcn writes the block's files into `src/`, `server/` and `test/`, and

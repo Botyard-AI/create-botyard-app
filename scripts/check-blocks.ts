@@ -121,7 +121,7 @@ async function serve(
 ): Promise<{ url: string; close: () => void }> {
   const server = createServer((req, res) => {
     // Like a static host, ignore the query: `shadcn search` adds ?limit=&offset=.
-    const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname
+    const [pathname = ""] = (req.url ?? "").split("?")
     if (pathname === "/r/registry.json") {
       res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(index))
       return
