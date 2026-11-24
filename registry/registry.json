@@ -24,6 +24,42 @@
           "target": "~/test/greeting.test.ts"
         }
       ]
+    },
+    {
+      "name": "member-picker",
+      "type": "registry:block",
+      "title": "Member picker",
+      "description": "Pick a member of your org: a members-only GET /api/members route, backed by list_org_members, and a searchable list to choose from.",
+      "docs": "Add the route to `api` in server/app.ts: import { orgMembersRoute } from \"./org-members.ts\", then \"GET /api/members\": orgMembersRoute(botpage). In the UI: const members = useOrgMembers() (from @/lib/org-members), then <MemberPicker members={members} value={userId} onChange={setUserId} />. Every org member who can open the app sees every member's name, email and role; drop email in src/lib/org-members-contract.ts if you don't need it. Members are identified by the Bot Page proxy, so the app must be reached only through it (the template listens on 127.0.0.1). The list is cached: someone removed from the org can still read it for up to 60 s, or about 6 minutes while the platform is unreachable.",
+      "files": [
+        {
+          "path": "registry/blocks/member-picker/server/org-members.ts",
+          "type": "registry:file",
+          "target": "~/server/org-members.ts"
+        },
+        {
+          "path": "registry/blocks/member-picker/lib/org-members-contract.ts",
+          "type": "registry:lib"
+        },
+        {
+          "path": "registry/blocks/member-picker/lib/org-members.ts",
+          "type": "registry:lib"
+        },
+        {
+          "path": "registry/blocks/member-picker/components/member-picker.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/blocks/member-picker/test/member-picker.test.ts",
+          "type": "registry:file",
+          "target": "~/test/member-picker.test.ts"
+        },
+        {
+          "path": "registry/blocks/member-picker/test/ui/member-picker.test.tsx",
+          "type": "registry:file",
+          "target": "~/test/ui/member-picker.test.tsx"
+        }
+      ]
     }
   ]
 }
