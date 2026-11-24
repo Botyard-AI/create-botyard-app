@@ -24,6 +24,38 @@
           "target": "~/test/greeting.test.ts"
         }
       ]
+    },
+    {
+      "name": "member-picker",
+      "type": "registry:block",
+      "title": "Member picker",
+      "description": "Pick a member of your org: a members-only GET /api/members route, backed by list_org_members, and a searchable list to choose from.",
+      "docs": "Add the route to `api` in server/app.ts: import { orgMembersRoute } from \"./org-members.ts\", then \"GET /api/members\": orgMembersRoute(botpage). In the UI: const members = useOrgMembers() (from @/lib/org-members), then <MemberPicker members={members} value={userId} onChange={setUserId} />.",
+      "files": [
+        {
+          "path": "registry/blocks/member-picker/server/org-members.ts",
+          "type": "registry:file",
+          "target": "~/server/org-members.ts"
+        },
+        {
+          "path": "registry/blocks/member-picker/lib/org-members.ts",
+          "type": "registry:lib"
+        },
+        {
+          "path": "registry/blocks/member-picker/components/member-picker.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/blocks/member-picker/test/member-picker.test.ts",
+          "type": "registry:file",
+          "target": "~/test/member-picker.test.ts"
+        },
+        {
+          "path": "registry/blocks/member-picker/test/ui/member-picker.test.tsx",
+          "type": "registry:file",
+          "target": "~/test/ui/member-picker.test.tsx"
+        }
+      ]
     }
   ]
 }
