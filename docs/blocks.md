@@ -145,5 +145,39 @@ by Terraform in the Botyard monorepo (`infra/blocks-registry`), not here. The
 | `CLOUDFLARE_API_TOKEN` | secret | Can deploy the `botyard-blocks` Worker and nothing else |
 | `CLOUDFLARE_ACCOUNT_ID` | variable | The Cloudflare account |
 
+### Setting the token
+
+The token is created by Terraform and stored encrypted in the **Botyard
+monorepo**, not in this repository. A maintainer who can decrypt
+`infra/secrets/integrations/` sets it, **from the monorepo root**:
+
+```bash
+f=infra/secrets/integrations/cloudflare-deploy-blocks.sops.yaml
+if token=$(sops decrypt --extract '["cloudflare_api_token"]' "$f") && [ -n "$token" ] &&
+   account=$(sops decrypt --extract '["cloudflare_account_id"]' "$f") && [ -n "$account" ]; then
+  printf '%s' "$token" | gh secret set CLOUDFLARE_API_TOKEN \
+    --env blocks-publish --repo Botyard-AI/create-botyard-app
+  printf '%s' "$account" | gh variable set CLOUDFLARE_ACCOUNT_ID \
+    --env blocks-publish --repo Botyard-AI/create-botyard-app
+else
+  echo "Nothing set: could not decrypt $f. Run this from the monorepo root." >&2
+fi
+unset token account
+```
+
+Decrypt into a variable first and check it, as above. Do not pipe `sops`
+straight into `gh secret set`. In a pipeline, `gh` starts at the same time as
+`sops` and still runs when `sops` fails, so it stores an **empty** secret.
+`set -o pipefail` does not prevent this; it only changes the exit status
+afterwards. `printf` is a shell builtin, so the token never appears in a
+process's arguments.
+
+Never paste the token into chat, an issue or a pull request, and never set it
+as a repository secret.
+
+After the first publish, the registry index is
+`https://blocks.botyard.io/r/registry.json`. Nothing is served at the root
+`/registry.json`, so a 404 there is expected.
+
 A publish replaces the whole registry with what is on `main`. To withdraw a
 block, remove it from `registry.json` and publish again.

@@ -47,6 +47,9 @@ after any PR that changes these files.
 5. **Blocks registry.** In the `blocks-publish` environment, add the secret
    `CLOUDFLARE_API_TOKEN` (the deploy token for the `botyard-blocks` Worker,
    from the Botyard monorepo's `infra/blocks-registry`) and the variable
-   `CLOUDFLARE_ACCOUNT_ID`. Never as repository secrets. See [blocks.md](./blocks.md).
+   `CLOUDFLARE_ACCOUNT_ID`. Never as repository secrets. Set them **from the
+   Botyard monorepo root**, not from this checkout, with the commands in
+   [blocks.md → Setting the token](./blocks.md#setting-the-token). Those commands
+   refuse to call `gh` unless the value decrypted and is non-empty.
 6. **Org policy (recommended).** Require 2FA for the GitHub org, and require
    actions to be pinned to full SHAs across the org.
