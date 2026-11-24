@@ -25,6 +25,7 @@
 // Usage: node scripts/check-blocks.ts [block ...]   (default: every block)
 
 import { execFile, spawn } from "node:child_process"
+import { existsSync } from "node:fs"
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { promisify } from "node:util"
@@ -215,6 +216,7 @@ async function checkBlock(
   if ((await readFile(pkgFile, "utf8")) !== pkgBefore) {
     throw new Error(`shadcn add ${NAMESPACE}/${name} changed package.json`)
   }
+  assertWritten(name, blocks.get(name), app)
   if (!(await searchFinds(app, `${NAMESPACE}/${name}`))) {
     throw new Error(`shadcn search ${NAMESPACE} does not list ${NAMESPACE}/${name}`)
   }
@@ -234,6 +236,20 @@ async function searchFinds(app: string, address: string): Promise<boolean> {
     Array.isArray(items) &&
     items.some((item: unknown) => isObject(item) && item["addCommandArgument"] === address)
   )
+}
+
+/**
+ * shadcn exits 0 without writing anything when it stops to ask whether to
+ * overwrite a file that differs from the block's copy, so check that every
+ * file the block places by `target` is there.
+ */
+function assertWritten(name: string, block: Block | undefined, app: string): void {
+  for (const { target } of block?.files ?? []) {
+    if (target === undefined) continue
+    if (!existsSync(path.join(app, target.replace(/^~\//, "")))) {
+      throw new Error(`shadcn add ${NAMESPACE}/${name} did not write ${target}`)
+    }
+  }
 }
 
 /** A directory of npm, pnpm, yarn and bun stubs that fail when run. */

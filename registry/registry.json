@@ -26,11 +26,34 @@
       ]
     },
     {
+      "name": "api-fetch",
+      "type": "registry:block",
+      "title": "API fetch with sign-in expiry",
+      "description": "apiFetch for the app's /api routes. It spots the Bot Page proxy's 401 once the viewer's Botyard sign-in runs out (after about an hour), then reloads the page or shows a banner with a Reload button.",
+      "docs": "Apps made with create-botyard-app 0.1.3 or later already have this. Otherwise: call configureApiFetch({ onSessionExpired: \"reload\" }) (from @/lib/api-fetch) once in src/main.tsx, render <SessionExpiredBanner /> (from @/components/session-expired-banner) once at the top of the app, and use apiFetch instead of fetch for /api calls. \"reload\" (the default) reloads the page, which signs the viewer in again; pick \"prompt\" when a reload could lose what someone typed: the banner appears and they reload when ready. If a reload does not sign them back in within 60 s, the banner appears instead of reloading again. apiFetch throws SessionExpiredError for that 401; any other answer, including the app's own 401s, is returned unchanged.",
+      "files": [
+        {
+          "path": "registry/blocks/api-fetch/lib/api-fetch.ts",
+          "type": "registry:lib"
+        },
+        {
+          "path": "registry/blocks/api-fetch/components/session-expired-banner.tsx",
+          "type": "registry:component"
+        },
+        {
+          "path": "registry/blocks/api-fetch/test/ui/api-fetch.test.tsx",
+          "type": "registry:file",
+          "target": "~/test/ui/api-fetch.test.tsx"
+        }
+      ]
+    },
+    {
       "name": "member-picker",
       "type": "registry:block",
       "title": "Member picker",
       "description": "Pick a member of your org: a members-only GET /api/members route, backed by list_org_members, and a searchable list to choose from.",
-      "docs": "Add the route to `api` in server/app.ts: import { orgMembersRoute } from \"./org-members.ts\", then \"GET /api/members\": orgMembersRoute(botpage). In the UI: const members = useOrgMembers() (from @/lib/org-members), then <MemberPicker members={members} value={userId} onChange={setUserId} />. Every org member who can open the app sees every member's name, email and role; drop email in src/lib/org-members-contract.ts if you don't need it. Members are identified by the Bot Page proxy, so the app must be reached only through it (the template listens on 127.0.0.1). The list is cached: someone removed from the org can still read it for up to 60 s, or about 6 minutes while the platform is unreachable.",
+      "docs": "Add the route to `api` in server/app.ts: import { orgMembersRoute } from \"./org-members.ts\", then \"GET /api/members\": orgMembersRoute(botpage). In the UI: const members = useOrgMembers() (from @/lib/org-members), then <MemberPicker members={members} value={userId} onChange={setUserId} />. Every org member who can open the app sees every member's name, email and role; drop email in src/lib/org-members-contract.ts if you don't need it. Members are identified by the Bot Page proxy, so the app must be reached only through it (the template listens on 127.0.0.1). The list is cached: someone removed from the org can still read it for up to 60 s, or about 6 minutes while the platform is unreachable. Requests go through apiFetch (@botyard/api-fetch): see its note on what happens when the viewer's sign-in runs out.",
+      "registryDependencies": ["@botyard/api-fetch"],
       "files": [
         {
           "path": "registry/blocks/member-picker/server/org-members.ts",
@@ -66,8 +89,8 @@
       "type": "registry:block",
       "title": "Approval flow",
       "description": "Ask a member of your org to approve something; they approve or reject it with a note, and everyone in the org sees each request and its history.",
-      "docs": "Setup: in server/app.ts add `tools: ToolCaller` (from @botyard/runtime) to AppOptions; pass `tools: runtime` where server/index.ts calls createApp, and `tools: mockRuntime()` in test/helpers.ts. Add to `api`: ...approvalRoutes({ botpage, tools, store: new ApprovalStore(path.join(appRoot, \"data\", \"approvals.json\")) }) (approvalRoutes and ApprovalStore from ./approvals.ts, appRoot from ./config.ts), and the member picker's \"GET /api/members\": orgMembersRoute(botpage). Add data/ to .gitignore. In the UI: <ApprovalFlow />. Who sees what: every org member sees every request, its details and its history; only the chosen approver decides. Limits: run ONE app process per data file: each process keeps its own copy and rewrites the whole file, so two would overwrite each other's changes. Each change is flushed to disk before it is answered; if that cannot be confirmed, the answer says durable: false and the UI warns not to send it again. new ApprovalStore(null) keeps requests in memory only, so every answer is durable: false. Each change re-checks membership with a fresh list_org_members listing: a recent snapshot, not a lock. The JSON-only API keeps other sites' forms out as long as the Bot Page proxy does not allow credentialed cross-origin requests. For many requests or several processes, move the store to a database.",
-      "registryDependencies": ["@botyard/member-picker"],
+      "docs": "Setup: in server/app.ts add `tools: ToolCaller` (from @botyard/runtime) to AppOptions; pass `tools: runtime` where server/index.ts calls createApp, and `tools: mockRuntime()` where test/helpers.ts calls createApp, whose startApp options become Omit<AppOptions, \"botpage\" | \"tools\">. Add to `api`: ...approvalRoutes({ botpage, tools, store: new ApprovalStore(path.join(appRoot, \"data\", \"approvals.json\")) }) (approvalRoutes and ApprovalStore from ./approvals.ts, appRoot from ./config.ts), and the member picker's \"GET /api/members\": orgMembersRoute(botpage). Add data/ to .gitignore. In the UI: <ApprovalFlow />. Who sees what: every org member sees every request, its details and its history; only the chosen approver decides. Limits: run ONE app process per data file: each process keeps its own copy and rewrites the whole file, so two would overwrite each other's changes. Each change is flushed to disk before it is answered; if that cannot be confirmed, the answer says durable: false and the UI warns not to send it again. new ApprovalStore(null) keeps requests in memory only, so every answer is durable: false. Each change re-checks membership with a fresh list_org_members listing: a recent snapshot, not a lock. The JSON-only API keeps other sites' forms out as long as the Bot Page proxy does not allow credentialed cross-origin requests. For many requests or several processes, move the store to a database. Requests go through apiFetch (@botyard/api-fetch). The request form holds typed text, so set configureApiFetch({ onSessionExpired: \"prompt\" }) in src/main.tsx: when the sign-in runs out the form keeps its text and a banner asks the user to reload. A request turned away for that was never saved.",
+      "registryDependencies": ["@botyard/api-fetch", "@botyard/member-picker"],
       "files": [
         {
           "path": "registry/blocks/approval-flow/server/approvals.ts",

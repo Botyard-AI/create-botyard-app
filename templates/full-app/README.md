@@ -108,3 +108,18 @@ npm ci --include=dev
 The scripts set `NODE_ENV` themselves (`dev` and `dev:mock` to
 `development`, `start` to `production`), so you only need `--include=dev`
 when installing.
+
+**Every `/api` call fails after the page has been open for about an
+hour.** The Bot Page proxy signs the viewer in for about an hour. After
+that, loading the page signs them in again, but a `fetch()` from an open
+page gets a 401 from the proxy. Call the API with `apiFetch` from
+`src/lib/api-fetch.ts`, as `src/lib/api.ts` does: it recognises that 401
+and does what `configureApiFetch` in `src/main.tsx` says.
+
+- `"reload"` (the default) reloads the page, which signs the viewer in
+  again. Anything typed on the page is lost.
+- `"prompt"` shows a banner with a Reload button instead. Use it when the
+  app has forms. The banner is `<SessionExpiredBanner />` in `src/App.tsx`.
+
+If a reload does not sign the viewer back in, the app shows the banner
+rather than reloading again within the same minute.
