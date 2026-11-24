@@ -1,6 +1,6 @@
 // Approval requests: a member asks another member to approve something; the
-// approver approves or rejects it once, with a note; everyone in the org sees
-// each request and its history.
+// approver approves or rejects it once, with a note; every member of the org
+// sees each request and its history.
 //
 // Add the routes to `api` in server/app.ts. They need the runtime (`tools`)
 // for a fresh member listing, so pass it to createApp too; the block's
@@ -9,16 +9,30 @@
 //   const store = new ApprovalStore(path.join(appRoot, "data", "approvals.json"))
 //   ...approvalRoutes({ botpage, tools, store }),
 //
-// Every org member sees every request. Only the chosen approver decides.
-// Two rules hold for every change:
+// Rules for every change:
 // - Authority belongs to a member's user id, which never changes. An email
 //   address can be given to someone else.
-// - Before a change, the viewer is checked again against a member listing
-//   started after everything the request waited on, never the cache. The
-//   change then happens without another await, so a member removed while the
-//   request was in flight is refused.
+// - Before a change, the viewer (and, for a new request, the approver) is
+//   checked against a member listing started after the request body was
+//   read, never the cache. The change is then checked, made and saved with
+//   no other await, so two decisions on one request cannot both win.
+//
+// Limits, kept so the example stays readable:
+// - One process per data file. Each store loads the file once and rewrites
+//   it whole, so two processes sharing a file would overwrite each other.
+// - The listing is a recent snapshot, not a lock: someone removed while it
+//   is being read can still act once.
 import { randomUUID } from "node:crypto"
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
+import {
+  closeSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import path from "node:path"
 import type { BotPage, MemberViewer, OrgMember } from "@botyard/botpage"
@@ -27,20 +41,22 @@ import { requireMember, sendGuardFailure } from "@botyard/botpage/node"
 import type { ToolCaller } from "@botyard/runtime"
 import {
   ContractError,
+  DECISION_OUTCOME,
   parseApprovalRequests,
-  parseDecideApproval,
+  parseDecideApprovals,
   parseNewApproval,
   type ApprovalEvent,
   type ApprovalRequest,
   type ApprovalResponse,
   type ApprovalsResponse,
+  type DecidedResponse,
   type Person,
 } from "../src/lib/approvals-contract.ts"
 
 /** The store refuses new requests past this many, so it cannot grow without bound. */
 const MAX_REQUESTS = 1000
 /** Largest request body read, in bytes. */
-const MAX_BODY = 16 * 1024
+const MAX_BODY = 64 * 1024
 
 type Handler = (req: IncomingMessage, res: ServerResponse) => Promise<void>
 
@@ -56,9 +72,11 @@ export class HttpError extends Error {
 }
 
 /**
- * Every request, in memory and, when given a file, on disk. Each change
- * rewrites the whole file: a temporary file, flushed, then renamed over the
- * old one, so a crash leaves either the old list or the new one.
+ * Every request, in memory and, when given a file, on disk. Only one process
+ * may use a file. Each change rewrites the whole file: a temporary file,
+ * flushed, renamed over the old one, then the directory flushed, so once a
+ * change is acknowledged it survives a crash or power cut, and the file is
+ * never half-written.
  */
 export class ApprovalStore {
   readonly #file: string | null
@@ -83,18 +101,24 @@ export class ApprovalStore {
     return this.#requests.size
   }
 
-  /** Adds or replaces a request and saves. Synchronous, so nothing runs in between. */
-  put(request: ApprovalRequest): void {
-    const before = this.#requests.get(request.id)
-    this.#requests.set(request.id, request)
+  /**
+   * Adds or replaces requests and saves them together. Synchronous, so
+   * nothing runs in between. If the save fails, none of them is kept.
+   */
+  put(requests: readonly ApprovalRequest[]): void {
+    const before = new Map(this.#requests)
+    for (const request of requests) this.#requests.set(request.id, request)
     try {
-      this.#save()
+      this.#write()
     } catch (err) {
-      // Not saved: undo, so memory never holds what the file does not.
-      if (before === undefined) this.#requests.delete(request.id)
-      else this.#requests.set(request.id, before)
+      // The file still holds the old list: so must memory.
+      this.#requests.clear()
+      for (const [id, request] of before) this.#requests.set(id, request)
       throw err
     }
+    // The file holds the new list now. If this fails, the change is kept,
+    // but a power cut could still undo it, so the request fails loudly.
+    this.#syncDir()
   }
 
   #load(): ApprovalRequest[] {
@@ -110,13 +134,30 @@ export class ApprovalStore {
     return parseApprovalRequests(JSON.parse(text))
   }
 
-  #save(): void {
+  /** Writes a temporary file, flushes it, then renames it over the old one. */
+  #write(): void {
     if (this.#file === null) return
     mkdirSync(path.dirname(this.#file), { recursive: true, mode: 0o700 })
     const tmp = `${this.#file}.${String(process.pid)}.tmp`
     const json = JSON.stringify([...this.#requests.values()], null, 2)
-    writeFileSync(tmp, `${json}\n`, { mode: 0o600, flush: true })
-    renameSync(tmp, this.#file)
+    try {
+      writeFileSync(tmp, `${json}\n`, { mode: 0o600, flush: true })
+      renameSync(tmp, this.#file)
+    } catch (err) {
+      rmSync(tmp, { force: true })
+      throw err
+    }
+  }
+
+  /** The rename is only safe from a power cut once the directory is flushed too. */
+  #syncDir(): void {
+    if (this.#file === null) return
+    const fd = openSync(path.dirname(this.#file), "r")
+    try {
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
   }
 }
 
@@ -139,14 +180,14 @@ export function approvalRoutes({ botpage, tools, store }: ApprovalDeps): Record<
       if (body.approverId === member.userId) {
         throw new HttpError(400, "Ask someone else: you cannot approve your own request")
       }
-      const approver = await botpage.members.lookup(body.approverId)
-      if (approver?.userId !== body.approverId) {
+      const org = await freshListing(tools)
+      // No await from here on: the checks below still hold when the request is saved.
+      const requester = stillMember(org, member)
+      const approver = org.get(body.approverId)
+      if (approver === undefined)
         throw new HttpError(400, "The approver is not a member of this org")
-      }
-      const fresh = await freshMember(tools, member)
-      // No await from here on: the checks above still hold when the request is saved.
       if (store.size >= MAX_REQUESTS) throw new HttpError(409, "Too many requests are stored")
-      const requestedBy = person(fresh)
+      const requestedBy = person(requester)
       const request: ApprovalRequest = {
         id: randomUUID(),
         title: body.title,
@@ -156,46 +197,53 @@ export function approvalRoutes({ botpage, tools, store }: ApprovalDeps): Record<
         status: "pending",
         history: [event("requested", requestedBy, "")],
       }
-      store.put(request)
+      store.put([request])
       return { request }
     }),
 
-    "POST /api/approvals/decide": route(botpage, async (req, member): Promise<ApprovalResponse> => {
-      const body = parseDecideApproval(await readJson(req))
-      const fresh = await freshMember(tools, member)
-      // No await from here on: the request is read and changed in one step.
-      const current = store.get(body.id)
-      if (current === undefined) throw new HttpError(404, "No such request")
-      if (current.approver.userId !== fresh.userId) {
-        throw new HttpError(403, "Only the approver can decide this request")
-      }
-      if (current.status !== "pending") {
-        throw new HttpError(409, `This request is already ${current.status}`)
-      }
-      const approved = body.decision === "approve"
-      const request: ApprovalRequest = {
-        ...current,
-        status: approved ? "approved" : "rejected",
-        history: [
-          ...current.history,
-          event(approved ? "approved" : "rejected", person(fresh), body.note),
-        ],
-      }
-      store.put(request)
-      return { request }
+    // A list of decisions, so an approver can clear several at once. All or
+    // nothing: each is checked before any is recorded.
+    "POST /api/approvals/decide": route(botpage, async (req, member): Promise<DecidedResponse> => {
+      const { decisions } = parseDecideApprovals(await readJson(req))
+      const org = await freshListing(tools)
+      // No await from here on: the requests are read, checked and changed in one step.
+      const by = person(stillMember(org, member))
+      const decided = decisions.map(({ id, decision, note }): ApprovalRequest => {
+        const current = store.get(id)
+        if (current === undefined) throw new HttpError(404, `No request ${id}`)
+        if (current.approver.userId !== by.userId) {
+          throw new HttpError(403, `Only the approver can decide "${current.title}"`)
+        }
+        if (current.status !== "pending") {
+          throw new HttpError(409, `"${current.title}" is already ${current.status}`)
+        }
+        const outcome = DECISION_OUTCOME[decision]
+        return {
+          ...current,
+          status: outcome,
+          history: [...current.history, event(outcome, by, note)],
+        }
+      })
+      store.put(decided)
+      return { requests: decided }
     }),
   }
 }
 
 /**
- * The member again, from a member listing that starts now, not from the
- * cache. `list_org_members` cannot look up one member, so this lists the
- * whole org: once per change, which is fine for approvals.
+ * The org's members, from a listing that starts now rather than the cache.
+ * `list_org_members` cannot look up one member, so this lists the whole org:
+ * once per change, which is fine at the pace people approve things.
  */
-async function freshMember(tools: ToolCaller, member: MemberViewer): Promise<OrgMember> {
-  const fresh = new MemberDirectory(tools, { maxStaleMs: 0 })
-  const now = await fresh.lookup(member.userId)
-  if (now?.userId !== member.userId) {
+async function freshListing(tools: ToolCaller): Promise<ReadonlyMap<string, OrgMember>> {
+  const members = await new MemberDirectory(tools, { maxStaleMs: 0 }).list()
+  return new Map(members.map((m) => [m.userId, m]))
+}
+
+/** The viewer as the fresh listing has them; refused if it no longer does. */
+function stillMember(org: ReadonlyMap<string, OrgMember>, member: MemberViewer): OrgMember {
+  const now = org.get(member.userId)
+  if (now === undefined) {
     throw new BotPageAuthError("not_a_member", "You are no longer a member of this org.")
   }
   return now
@@ -233,27 +281,49 @@ function route<T>(
 }
 
 /**
- * Reads a JSON body of at most 16 KiB. Requiring `application/json` also
- * keeps other sites' plain HTML forms from posting here.
+ * Reads a JSON body of at most 64 KiB.
+ *
+ * Only `application/json` is read. Browsers send that cross-site only after
+ * a CORS preflight, which this app never answers, so other sites' pages
+ * cannot post here (as long as the Bot Page proxy does not allow
+ * credentialed cross-origin requests itself).
  */
 async function readJson(req: IncomingMessage): Promise<unknown> {
-  if (!(req.headers["content-type"] ?? "").startsWith("application/json")) {
+  const type = (req.headers["content-type"] ?? "").split(";")[0]?.trim().toLowerCase()
+  if (type !== "application/json") {
     throw new HttpError(415, "Send JSON (content-type: application/json)")
   }
-  const chunks: Buffer[] = []
-  let size = 0
-  for await (const chunk of req) {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
-    size += buf.length
-    if (size > MAX_BODY) throw new HttpError(413, "Request body too large")
-    chunks.push(buf)
+  if (Number(req.headers["content-length"] ?? 0) > MAX_BODY) {
+    throw new HttpError(413, "Request body too large")
   }
+  const text = await readBody(req)
   try {
-    const json: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"))
+    const json: unknown = JSON.parse(text)
     return json
   } catch {
     throw new HttpError(400, "The body must be JSON")
   }
+}
+
+/**
+ * The body as text. Past MAX_BODY it stops keeping the bytes and refuses
+ * with 413, but goes on reading what is sent (and dropping it), so the
+ * client still gets that answer instead of a reset connection.
+ */
+function readBody(req: IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length
+      if (size <= MAX_BODY) chunks.push(chunk)
+      else reject(new HttpError(413, "Request body too large"))
+    })
+    req.on("end", () => {
+      resolve(Buffer.concat(chunks).toString("utf8"))
+    })
+    req.on("error", reject)
+  })
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {

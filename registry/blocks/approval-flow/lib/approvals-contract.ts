@@ -9,6 +9,15 @@ export type Person = { readonly userId: string; readonly name: string }
 export type Decision = "approve" | "reject"
 export type ApprovalStatus = "pending" | "approved" | "rejected"
 
+/**
+ * What each decision makes of a request: its new status, and the kind of
+ * its history event. A new Decision fails to compile until it is added here.
+ */
+export const DECISION_OUTCOME = {
+  approve: "approved",
+  reject: "rejected",
+} as const satisfies Record<Decision, Exclude<ApprovalStatus, "pending">>
+
 /** One step in a request's history. */
 export type ApprovalEvent = {
   readonly kind: "requested" | "approved" | "rejected"
@@ -37,8 +46,11 @@ export type ApprovalsResponse = {
   readonly requests: readonly ApprovalRequest[]
 }
 
-/** POST /api/approvals and POST /api/approvals/decide answer with the request. */
+/** POST /api/approvals answers with the new request. */
 export type ApprovalResponse = { readonly request: ApprovalRequest }
+
+/** POST /api/approvals/decide answers with the decided requests, in the order sent. */
+export type DecidedResponse = { readonly requests: readonly ApprovalRequest[] }
 
 /** POST /api/approvals: ask a member to approve something. */
 export type NewApproval = {
@@ -47,14 +59,20 @@ export type NewApproval = {
   readonly approverId: string
 }
 
-/** POST /api/approvals/decide: the approver's decision on a pending request. */
+/** The approver's decision on one pending request. */
 export type DecideApproval = {
   readonly id: string
   readonly decision: Decision
   readonly note: string
 }
 
-export const LIMITS = { title: 200, details: 4000, note: 2000 } as const
+/**
+ * POST /api/approvals/decide: one or more decisions, each on a different
+ * request. All or nothing: if any one is refused, none is recorded.
+ */
+export type DecideApprovals = { readonly decisions: readonly DecideApproval[] }
+
+export const LIMITS = { title: 200, details: 4000, note: 2000, decisions: 50 } as const
 
 // Request bodies, read by the server. They throw ContractError on bad input.
 
@@ -69,13 +87,25 @@ export function parseNewApproval(body: unknown): NewApproval {
   }
 }
 
-export function parseDecideApproval(body: unknown): DecideApproval {
-  const r = record(body, "body")
-  return {
-    id: text(r, "id", "body", 200),
-    decision: oneOf(r, "decision", "body", ["approve", "reject"]),
-    note: text(r, "note", "body", LIMITS.note).trim(),
+/** 1 to 50 decisions; the same request twice is refused. */
+export function parseDecideApprovals(body: unknown): DecideApprovals {
+  const list = record(body, "body")["decisions"]
+  if (!Array.isArray(list) || list.length < 1 || list.length > LIMITS.decisions) {
+    throw new ContractError(`body.decisions: a list of 1 to ${String(LIMITS.decisions)}`)
   }
+  const decisions = list.map((value: unknown, i): DecideApproval => {
+    const where = `body.decisions[${String(i)}]`
+    const r = record(value, where)
+    return {
+      id: text(r, "id", where, 200),
+      decision: oneOf(r, "decision", where, ["approve", "reject"]),
+      note: text(r, "note", where, LIMITS.note).trim(),
+    }
+  })
+  if (new Set(decisions.map((d) => d.id)).size !== decisions.length) {
+    throw new ContractError("body.decisions: the same request more than once")
+  }
+  return { decisions }
 }
 
 // Responses, read by the client.
@@ -87,6 +117,10 @@ export function parseApprovalsResponse(body: unknown): ApprovalsResponse {
     me: text(r, "me", "response"),
     requests: parseApprovalRequests(requests),
   }
+}
+
+export function parseDecidedResponse(body: unknown): DecidedResponse {
+  return { requests: parseApprovalRequests(record(body, "response")["requests"]) }
 }
 
 export function parseApprovalResponse(body: unknown): ApprovalResponse {

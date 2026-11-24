@@ -4,13 +4,13 @@
 //
 // Needs the routes in server/approvals.ts and GET /api/members from the
 // member-picker block (installed with this one).
-import { useState } from "react"
+import { useId, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { MemberPicker } from "@/components/member-picker"
 import type { ApprovalRequest, ApprovalStatus, Decision } from "@/lib/approvals-contract"
 import { LIMITS } from "@/lib/approvals-contract"
-import { decideApproval, errorMessage, requestApproval, useApprovals } from "@/lib/approvals"
+import { decideApprovals, errorMessage, requestApproval, useApprovals } from "@/lib/approvals"
 import { useOrgMembers } from "@/lib/org-members"
 
 const field = "border-input bg-background rounded-md border px-3 py-2 text-sm"
@@ -53,6 +53,7 @@ export function RequestApprovalForm({ onRequested }: { readonly onRequested: () 
   const [approverId, setApproverId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const formId = useId()
 
   async function submit(): Promise<void> {
     if (approverId === null) return
@@ -99,6 +100,7 @@ export function RequestApprovalForm({ onRequested }: { readonly onRequested: () 
           <textarea
             className={field}
             aria-label="Details"
+            aria-describedby={`${formId}-visibility`}
             placeholder="Details (optional)"
             rows={3}
             maxLength={LIMITS.details}
@@ -107,6 +109,9 @@ export function RequestApprovalForm({ onRequested }: { readonly onRequested: () 
               setDetails(e.target.value)
             }}
           />
+          <p id={`${formId}-visibility`} className="text-muted-foreground text-xs">
+            Everyone in your org can see this request, its details and its history.
+          </p>
           <MemberPicker
             members={members}
             value={approverId}
@@ -219,7 +224,7 @@ function DecideControls({
     setBusy(true)
     setError(null)
     try {
-      await decideApproval({ id, decision, note })
+      await decideApprovals([{ id, decision, note }])
       onDecided()
     } catch (err) {
       setError(errorMessage(err))

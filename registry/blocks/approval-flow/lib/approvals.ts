@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from "react"
 import {
   parseApprovalResponse,
   parseApprovalsResponse,
+  parseDecidedResponse,
   type ApprovalRequest,
   type ApprovalsResponse,
   type DecideApproval,
+  type DecideApprovals,
   type NewApproval,
 } from "@/lib/approvals-contract"
 
@@ -44,9 +46,15 @@ export async function requestApproval(body: NewApproval): Promise<ApprovalReques
   return parseApprovalResponse(await postJson("/api/approvals", body)).request
 }
 
-/** POST /api/approvals/decide. Throws with the server's message when it refuses. */
-export async function decideApproval(body: DecideApproval): Promise<ApprovalRequest> {
-  return parseApprovalResponse(await postJson("/api/approvals/decide", body)).request
+/**
+ * POST /api/approvals/decide, for one or more requests. All or nothing:
+ * throws with the server's message, and records none, if any is refused.
+ */
+export async function decideApprovals(
+  decisions: readonly DecideApproval[]
+): Promise<readonly ApprovalRequest[]> {
+  const body: DecideApprovals = { decisions }
+  return parseDecidedResponse(await postJson("/api/approvals/decide", body)).requests
 }
 
 export function errorMessage(err: unknown): string {
@@ -57,7 +65,7 @@ async function getJson(url: string, signal: AbortSignal): Promise<unknown> {
   return answer(url, await fetch(url, { signal, headers: { accept: "application/json" } }))
 }
 
-async function postJson(url: string, body: NewApproval | DecideApproval): Promise<unknown> {
+async function postJson(url: string, body: NewApproval | DecideApprovals): Promise<unknown> {
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },

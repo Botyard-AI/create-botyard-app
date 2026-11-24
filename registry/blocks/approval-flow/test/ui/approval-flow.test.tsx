@@ -1,9 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, test } from "vitest"
-import { ApprovalList } from "@/components/approval-flow"
+import { ApprovalList, RequestApprovalForm } from "@/components/approval-flow"
 import {
+  DECISION_OUTCOME,
+  LIMITS,
   parseApprovalsResponse,
-  parseDecideApproval,
+  parseDecideApprovals,
   parseNewApproval,
   type ApprovalRequest,
 } from "@/lib/approvals-contract"
@@ -60,7 +62,18 @@ describe("ApprovalList", () => {
   })
 })
 
+describe("RequestApprovalForm", () => {
+  test("tells the requester who will see the request", () => {
+    const html = renderToStaticMarkup(<RequestApprovalForm onRequested={() => undefined} />)
+    expect(html).toContain("Everyone in your org can see this request")
+  })
+})
+
 describe("the contract", () => {
+  test("every decision has an outcome", () => {
+    expect(DECISION_OUTCOME).toEqual({ approve: "approved", reject: "rejected" })
+  })
+
   test("reads what the server sends", () => {
     const body: unknown = JSON.parse(JSON.stringify({ me: "user-ada", requests: [approved] }))
     expect(parseApprovalsResponse(body).requests[0]).toEqual(approved)
@@ -71,7 +84,15 @@ describe("the contract", () => {
     const noStatus = { ...pending, status: undefined }
     expect(() => parseApprovalsResponse({ me: "x", requests: [noStatus] })).toThrow("status")
     expect(() => parseNewApproval({ title: "t", details: "" })).toThrow("approverId")
-    expect(() => parseDecideApproval({ id: "r1", decision: "maybe", note: "" })).toThrow()
+    const one = { id: "r1", decision: "approve", note: "" }
+    expect(() => parseDecideApprovals({ decisions: [{ ...one, decision: "maybe" }] })).toThrow()
+    expect(() => parseDecideApprovals({ decisions: [] })).toThrow("1 to 50")
+    expect(() => parseDecideApprovals({ decisions: [one, one] })).toThrow("more than once")
+    const tooMany = Array.from({ length: LIMITS.decisions + 1 }, (_, i) => ({
+      ...one,
+      id: `r${String(i)}`,
+    }))
+    expect(() => parseDecideApprovals({ decisions: tooMany })).toThrow("1 to 50")
   })
 
   test("trims what people type", () => {

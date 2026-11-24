@@ -1,5 +1,5 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { createServer, type Server } from "node:http"
+import { createServer, request, type Server } from "node:http"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { createBotPage } from "@botyard/botpage"
@@ -7,7 +7,11 @@ import { listenLoopback } from "@botyard/botpage/node"
 import { createRuntime } from "@botyard/runtime"
 import { afterEach, describe, expect, test } from "vitest"
 import { ApprovalStore, approvalRoutes } from "../server/approvals.ts"
-import { parseApprovalResponse, parseApprovalsResponse } from "../src/lib/approvals-contract.ts"
+import {
+  parseApprovalResponse,
+  parseApprovalsResponse,
+  parseDecidedResponse,
+} from "../src/lib/approvals-contract.ts"
 import { asViewer } from "./helpers.ts"
 
 const ADA = {
@@ -106,16 +110,6 @@ describe("asking for approval", () => {
     expect(tooLong.status).toBe(400)
   })
 
-  test("only takes JSON, so other sites' forms cannot post", async () => {
-    const { base } = await serveApprovals()
-    const res = await fetch(`${base}/api/approvals`, {
-      method: "POST",
-      headers: { ...asViewer("ada@example.com").headers, "content-type": "text/plain" },
-      body: JSON.stringify(ASK),
-    })
-    expect(res.status).toBe(415)
-  })
-
   test("refuses people outside the org, and anonymous requests", async () => {
     const { as, base } = await serveApprovals()
     expect((await as("mallory@example.org", "POST", "/api/approvals", ASK)).status).toBe(403)
@@ -124,76 +118,145 @@ describe("asking for approval", () => {
 })
 
 describe("deciding", () => {
-  async function asked() {
+  async function asked(count = 1) {
     const served = await serveApprovals()
-    const res = await served.as("ada@example.com", "POST", "/api/approvals", ASK)
-    const { request } = parseApprovalResponse(await res.json())
-    return { ...served, id: request.id }
+    const ids: string[] = []
+    for (let i = 0; i < count; i++) {
+      const res = await served.as("ada@example.com", "POST", "/api/approvals", {
+        ...ASK,
+        title: `Request ${String(i + 1)}`,
+      })
+      ids.push(parseApprovalResponse(await res.json()).request.id)
+    }
+    /** POST /api/approvals/decide as `who`. */
+    const decide = (who: string, decisions: unknown[]) =>
+      served.as(who, "POST", "/api/approvals/decide", { decisions })
+    /** Every request's status, newest first. */
+    const statuses = async () => {
+      const res = await served.as("ada@example.com", "GET", "/api/approvals")
+      return parseApprovalsResponse(await res.json()).requests.map((r) => r.status)
+    }
+    return { ...served, ids, decide, statuses }
   }
 
   test("the approver approves, once, with a note", async () => {
-    const { as, id } = await asked()
-    const res = await as("grace@example.com", "POST", "/api/approvals/decide", {
-      id,
-      decision: "approve",
-      note: "Go ahead",
-    })
+    const { decide, ids } = await asked()
+    const id = ids[0]
+    const res = await decide("grace@example.com", [{ id, decision: "approve", note: "Go ahead" }])
     expect(res.status).toBe(200)
-    const { request } = parseApprovalResponse(await res.json())
-    expect(request.status).toBe("approved")
-    expect(request.history.map((e) => [e.kind, e.by.userId, e.note])).toEqual([
+    const [request] = parseDecidedResponse(await res.json()).requests
+    expect(request?.status).toBe("approved")
+    expect(request?.history.map((e) => [e.kind, e.by.userId, e.note])).toEqual([
       ["requested", "user-ada", ""],
       ["approved", "user-grace", "Go ahead"],
     ])
-    const again = await as("grace@example.com", "POST", "/api/approvals/decide", {
-      id,
-      decision: "reject",
-      note: "",
-    })
+    const again = await decide("grace@example.com", [{ id, decision: "reject", note: "" }])
     expect(again.status).toBe(409)
   })
 
+  test("decides several requests at once", async () => {
+    const { decide, ids, statuses } = await asked(2)
+    const res = await decide("grace@example.com", [
+      { id: ids[0], decision: "approve", note: "" },
+      { id: ids[1], decision: "reject", note: "Not now" },
+    ])
+    expect(res.status).toBe(200)
+    expect(parseDecidedResponse(await res.json()).requests.map((r) => r.status)).toEqual([
+      "approved",
+      "rejected",
+    ])
+    expect(await statuses()).toEqual(["rejected", "approved"])
+  })
+
+  test("all or nothing: one refused decision records none", async () => {
+    const { decide, ids, statuses } = await asked(2)
+    await decide("grace@example.com", [{ id: ids[1], decision: "approve", note: "" }])
+    const res = await decide("grace@example.com", [
+      { id: ids[0], decision: "approve", note: "" },
+      { id: ids[1], decision: "reject", note: "" },
+    ])
+    expect(res.status).toBe(409)
+    expect(await statuses()).toEqual(["approved", "pending"])
+  })
+
+  test("refuses an empty list, too many, the same request twice, or a bad decision", async () => {
+    const { decide, ids } = await asked()
+    const one = { id: ids[0], decision: "approve", note: "" }
+    const tooMany = Array.from({ length: 51 }, (_, i) => ({ ...one, id: `r${String(i)}` }))
+    expect((await decide("grace@example.com", [])).status).toBe(400)
+    expect((await decide("grace@example.com", tooMany)).status).toBe(400)
+    expect((await decide("grace@example.com", [one, one])).status).toBe(400)
+    expect((await decide("grace@example.com", [{ ...one, decision: "maybe" }])).status).toBe(400)
+    expect((await decide("grace@example.com", [{ ...one, id: "nope" }])).status).toBe(404)
+  })
+
   test("nobody else can decide, not even who asked", async () => {
-    const { as, id } = await asked()
-    const res = await as("ada@example.com", "POST", "/api/approvals/decide", {
-      id,
-      decision: "approve",
-      note: "",
-    })
+    const { decide, ids } = await asked()
+    const res = await decide("ada@example.com", [{ id: ids[0], decision: "approve", note: "" }])
     expect(res.status).toBe(403)
   })
 
   test("an approver removed from the org is refused, even while the cache still has them", async () => {
-    const { as, id, org } = await asked()
+    const { decide, ids, org, as, statuses } = await asked()
     // Warm the guard's cache with Grace still in it, then remove her.
     await as("grace@example.com", "GET", "/api/approvals")
     org.members = [ADA]
-    const res = await as("grace@example.com", "POST", "/api/approvals/decide", {
-      id,
-      decision: "approve",
-      note: "",
-    })
+    const res = await decide("grace@example.com", [{ id: ids[0], decision: "approve", note: "" }])
     expect(res.status).toBe(403)
-    const list = parseApprovalsResponse(
-      await (await as("ada@example.com", "GET", "/api/approvals")).json()
-    )
-    expect(list.requests[0]?.status).toBe("pending")
+    expect(await statuses()).toEqual(["pending"])
+  })
+})
+
+describe("request bodies", () => {
+  test("refuses an approver who has just left, even while the cache still has them", async () => {
+    const { as, org } = await serveApprovals()
+    await as("ada@example.com", "GET", "/api/approvals")
+    org.members = [ADA]
+    expect((await as("ada@example.com", "POST", "/api/approvals", ASK)).status).toBe(400)
   })
 
-  test("an unknown request or decision", async () => {
-    const { as, id } = await asked()
-    const unknown = await as("grace@example.com", "POST", "/api/approvals/decide", {
-      id: "nope",
-      decision: "approve",
-      note: "",
+  test("takes exactly application/json, with or without a charset", async () => {
+    const { base } = await serveApprovals()
+    const post = (type: string) =>
+      fetch(`${base}/api/approvals`, {
+        method: "POST",
+        headers: { ...asViewer("ada@example.com").headers, "content-type": type },
+        body: JSON.stringify(ASK),
+      })
+    expect((await post("application/json; charset=utf-8")).status).toBe(200)
+    expect((await post("application/jsonx")).status).toBe(415)
+    expect((await post("text/plain")).status).toBe(415)
+  })
+
+  test("answers 413 as JSON to a body that keeps streaming past the limit", async () => {
+    const { base } = await serveApprovals()
+    const answer = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = request(`${base}/api/approvals`, {
+        method: "POST",
+        headers: { "x-forwarded-user": "ada@example.com", "content-type": "application/json" },
+      })
+      req.on("response", (res) => {
+        let text = ""
+        res.on("data", (chunk: Buffer) => {
+          text += chunk.toString()
+        })
+        res.on("end", () => {
+          resolve({ status: res.statusCode ?? 0, body: text })
+          req.destroy()
+        })
+      })
+      req.on("error", reject)
+      // No content-length: keep sending 1 KiB chunks until the server answers.
+      const chunk = "x".repeat(1024)
+      const pump = (): void => {
+        if (req.destroyed) return
+        req.write(chunk)
+        setImmediate(pump)
+      }
+      pump()
     })
-    expect(unknown.status).toBe(404)
-    const bad = await as("grace@example.com", "POST", "/api/approvals/decide", {
-      id,
-      decision: "maybe",
-      note: "",
-    })
-    expect(bad.status).toBe(400)
+    expect(answer.status).toBe(413)
+    expect(JSON.parse(answer.body)).toEqual({ error: "Request body too large" })
   })
 })
 
@@ -239,7 +302,7 @@ describe("ApprovalStore", () => {
         history: [],
       }
       expect(() => {
-        store.put(request)
+        store.put([request])
       }).toThrow()
       expect(store.size).toBe(0)
     } finally {
