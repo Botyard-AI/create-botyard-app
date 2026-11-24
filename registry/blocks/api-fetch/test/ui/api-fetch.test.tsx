@@ -91,6 +91,17 @@ describe("recognising the proxy's 401", () => {
     expect(await isSessionExpired(other)).toBe(false)
     expect(await isSessionExpired(garbled)).toBe(false)
   })
+
+  test("the media type must be exactly application/problem+json; parameters may follow", async () => {
+    const body = JSON.stringify({ status: 401, error_code: "http_401" })
+    const answer = (type: string) =>
+      isSessionExpired(new Response(body, { status: 401, headers: { "content-type": type } }))
+    expect(await answer("application/problem+json; charset=utf-8")).toBe(true)
+    expect(await answer("Application/Problem+JSON")).toBe(true)
+    expect(await answer("application/problem+jsonp")).toBe(false)
+    expect(await answer("application/problem+json-seq")).toBe(false)
+    expect(await answer("application/json")).toBe(false)
+  })
 })
 
 describe("apiFetch", () => {

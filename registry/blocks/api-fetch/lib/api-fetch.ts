@@ -105,8 +105,8 @@ function markReload(browser: GuardBrowser): boolean {
  */
 export async function isSessionExpired(res: Response): Promise<boolean> {
   if (res.status !== 401) return false
-  const type = res.headers.get("content-type") ?? ""
-  if (!type.toLowerCase().startsWith("application/problem+json")) return false
+  const type = (res.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase()
+  if (type !== "application/problem+json") return false
   try {
     const body: unknown = await res.clone().json()
     return isRecord(body) && body["error_code"] === "http_401"
