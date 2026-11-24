@@ -10,12 +10,17 @@ npx shadcn@latest add @botyard/<block>
 ```
 
 shadcn fetches `https://blocks.botyard.io/r/<block>.json`, writes the block's
-files into the app and installs its npm dependencies. For `@botyard/` to
-resolve, the app's `components.json` lists the registry:
+files into the app and installs its npm dependencies. `npx shadcn@latest
+search @botyard` lists the blocks. For `@botyard/` to resolve, the app's
+`components.json` lists the registry, as the `full-app` template does:
 
 ```json
 "registries": { "@botyard": "https://blocks.botyard.io/r/{name}.json" }
 ```
+
+An app made before create-botyard-app 0.1.3 needs that line added by hand,
+and one made before 0.1.2 also needs `"paths": { "@/*": ["./src/*"] }` in
+its root `tsconfig.json`.
 
 The sources are in `registry/`: `registry.json` lists the blocks, and
 `registry/blocks/<block>/` holds each block's files. `greeting` is a small
@@ -100,14 +105,16 @@ CI runs the same check in the `ci` job, so a block that breaks a generated app
 fails CI. For each block, `scripts/check-blocks.ts`:
 
 1. Generates an app with the CLI built from this commit.
-2. Serves the built registry, `registry/dist` (what `registry.yml`
-   publishes), on `127.0.0.1`, and points the app's `@botyard` registry there
-   instead of `https://blocks.botyard.io`.
+2. Checks that the app's `components.json` names
+   `https://blocks.botyard.io/r/{name}.json`, then serves the built registry,
+   `registry/dist` (what `registry.yml` publishes), on `127.0.0.1` and points
+   the app there: the same URL with only the host changed.
 3. Adds the block's npm dependencies to the app's `package.json` and locks them
    with `scripts/lock-template.sh --app`: third-party versions as of 3 days
    ago, no install scripts.
 4. Runs `npm ci`, then `shadcn add @botyard/<block>`.
-5. Runs the app's `lint`, `format:check`, `typecheck`, `test` and `build`.
+5. Checks that `shadcn search @botyard` lists the block.
+6. Runs the app's `lint`, `format:check`, `typecheck`, `test` and `build`.
 
 shadcn installs a block's npm dependencies with a plain `npm install`, which
 ignores the 3-day rule, so the local server leaves them out of the block. Step

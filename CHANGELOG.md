@@ -31,6 +31,13 @@ Packages are released separately. A release section is headed
   environment. CI adds each block to a generated app and runs its checks. See
   `docs/blocks.md`.
 
+### Changed
+
+- create-botyard-app (full-app template): `components.json` lists the
+  Botyard block registry as `@botyard`, so `npx shadcn add @botyard/<block>`
+  and `npx shadcn search @botyard` work in a new app. The app's README
+  explains how to add a block.
+
 ## [create-botyard-app@0.1.2] - 2026-11-24
 
 ### Fixed

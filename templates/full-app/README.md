@@ -59,6 +59,26 @@ service and expose it with `--persistent`.
 - **`test/`** runs the API against `@botyard/runtime`'s mock transport, with
   the same fixtures as `dev:mock`.
 
+## Blocks
+
+Blocks are ready-made pieces of a Botyard app, such as a member picker: a
+React component, the server code behind it and its tests. They come from
+the Botyard registry at `https://blocks.botyard.io`, which `components.json`
+already lists as `@botyard`. To see what is there, and to add one:
+
+```sh
+npx shadcn@latest search @botyard
+npx shadcn@latest add @botyard/<block>
+```
+
+shadcn writes the block's files into `src/`, `server/` and `test/`, and
+installs any npm packages it needs. Then:
+
+- Follow the note shadcn prints after adding a block. If the block has API
+  routes, the note says how to add them to `api` in `server/app.ts`.
+- Review what changed in `package-lock.json`, as for any new package.
+- Run `npm test`: the block's tests are in `test/`.
+
 ## Security notes
 
 - **Dependencies.** `package-lock.json` pins every package, including
