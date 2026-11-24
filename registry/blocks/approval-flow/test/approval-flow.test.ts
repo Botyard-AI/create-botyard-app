@@ -41,9 +41,10 @@ async function serveApprovals(store = new ApprovalStore(null)) {
     },
   })
   const botpage = createBotPage({ tools, env: {} })
-  const routes = approvalRoutes({ botpage, tools, store })
+  // A Map, so a request line can only find a route, never an inherited property.
+  const routes = new Map(Object.entries(approvalRoutes({ botpage, tools, store })))
   const server = createServer((req, res) => {
-    const route = routes[`${req.method ?? ""} ${req.url ?? ""}`]
+    const route = routes.get(`${req.method ?? ""} ${req.url ?? ""}`)
     if (route === undefined) res.writeHead(404).end()
     else void route(req, res)
   })
