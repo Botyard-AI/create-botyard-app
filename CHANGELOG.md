@@ -31,11 +31,15 @@ Packages are released separately. A release section is headed
   environment. CI adds each block to a generated app and runs its checks. See
   `docs/blocks.md`.
 
+## [create-botyard-app@0.1.2] - 2026-11-24
+
 ### Fixed
 
-- create-botyard-app (full-app template): `npx shadcn add` put components in a
-  `@/components` directory in the app root instead of `src/components`. The
-  root `tsconfig.json` now has the `@/*` alias that shadcn reads.
+- The `full-app` template: `npx shadcn add` put components in a
+  `@/components` directory in the app root instead of `src/components`, so
+  the app's lint failed on them. The root `tsconfig.json` now has the `@/*`
+  alias that shadcn reads, and blocks from `https://blocks.botyard.io` land
+  in `src/`.
 
 ## [create-botyard-app@0.1.1] - 2026-11-20
 
