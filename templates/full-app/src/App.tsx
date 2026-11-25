@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { SessionExpiredBanner } from "@/components/session-expired-banner"
 import { ViewerBadge, type ViewerState } from "@/components/viewer-badge"
 import { fetchViewer } from "@/lib/api"
 
@@ -23,6 +24,7 @@ export default function App() {
 
   return (
     <div className="min-h-svh">
+      <SessionExpiredBanner />
       <header className="flex items-center justify-between gap-4 border-b px-6 py-3">
         <span className="font-semibold">Botyard app</span>
         <ViewerBadge state={state} />

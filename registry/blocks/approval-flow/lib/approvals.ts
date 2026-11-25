@@ -1,6 +1,7 @@
 // The approval API from the UI: read the requests, ask for approval, decide.
 // Shapes and parsing live in approvals-contract.ts, shared with the server.
 import { useCallback, useEffect, useState } from "react"
+import { apiFetch } from "@/lib/api-fetch"
 import {
   parseApprovalResponse,
   parseApprovalsResponse,
@@ -63,11 +64,13 @@ export function errorMessage(err: unknown): string {
 }
 
 async function getJson(url: string, signal: AbortSignal): Promise<unknown> {
-  return answer(url, await fetch(url, { signal, headers: { accept: "application/json" } }))
+  return answer(url, await apiFetch(url, { signal, headers: { accept: "application/json" } }))
 }
 
 async function postJson(url: string, body: NewApproval | DecideApprovals): Promise<unknown> {
-  const res = await fetch(url, {
+  // The proxy turns a lapsed sign-in away before the app sees the request, so
+  // apiFetch's SessionExpiredError means nothing was saved.
+  const res = await apiFetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify(body),

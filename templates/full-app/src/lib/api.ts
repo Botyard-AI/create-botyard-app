@@ -1,12 +1,16 @@
 // The viewer as /api/me returns it. Types come from @botyard/botpage (type
 // imports only: nothing from the server package is bundled into the UI).
 import type { BotViewer, MemberViewer, UnknownViewer, Viewer } from "@botyard/botpage"
+import { apiFetch } from "./api-fetch"
 
 export type { Viewer }
 
-/** Reads /api/me. Throws when the request fails or the answer is malformed. */
+/**
+ * Reads /api/me. Throws when the request fails or the answer is malformed, and
+ * SessionExpiredError once the viewer's Botyard sign-in has run out.
+ */
 export async function fetchViewer(signal?: AbortSignal): Promise<Viewer | null> {
-  const res = await fetch("/api/me", {
+  const res = await apiFetch("/api/me", {
     signal: signal ?? null,
     headers: { accept: "application/json" },
   })

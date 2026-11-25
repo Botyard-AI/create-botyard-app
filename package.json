@@ -13,7 +13,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc -p tsconfig.json --noEmit && pnpm run build:sdk && pnpm -r --if-present run typecheck",
-    "test": "vitest run && node --test scripts/release/readme-rules.test.mjs scripts/blocks/rules.test.ts && pnpm run build:sdk && pnpm --filter \"./templates/*\" run test",
+    "test": "vitest run && node --test scripts/release/readme-rules.test.mjs scripts/blocks/rules.test.ts scripts/blocks/template-copies.test.ts && pnpm run build:sdk && pnpm --filter \"./templates/*\" run test",
     "test:coverage": "vitest run --coverage",
     "build": "pnpm -r --if-present run build && pnpm run build:registry",
     "build:sdk": "pnpm --filter @botyard/runtime --filter @botyard/botpage run build",

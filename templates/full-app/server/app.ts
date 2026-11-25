@@ -48,6 +48,9 @@ export function createApp({ botpage, staticFiles, ui }: AppOptions): Handler {
       sendJson(res, 200, { message: `Hello, ${member.name ?? member.email ?? member.userId}!` })
     }),
   }
+  // A Map, so a request can only find a route listed above, never a property
+  // every object inherits (such as "constructor").
+  const routes = new Map(Object.entries(api))
 
   return async (req, res) => {
     let url: URL
@@ -60,8 +63,8 @@ export function createApp({ botpage, staticFiles, ui }: AppOptions): Handler {
     const method = req.method ?? "GET"
 
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
-      const route = api[`${method === "HEAD" ? "GET" : method} ${url.pathname}`]
-      if (route === undefined) sendJson(res, 404, { error: "not_found" })
+      const route = routes.get(`${method === "HEAD" ? "GET" : method} ${url.pathname}`)
+      if (typeof route !== "function") sendJson(res, 404, { error: "not_found" })
       else await route(req, res)
       return
     }

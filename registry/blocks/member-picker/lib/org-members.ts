@@ -1,5 +1,6 @@
 // The org's members in the UI, read from GET /api/members (server/org-members.ts).
 import { useEffect, useState } from "react"
+import { apiFetch } from "@/lib/api-fetch"
 import { parseMembersResponse, type MemberOption } from "@/lib/org-members-contract"
 
 export { memberLabel, type MemberOption } from "@/lib/org-members-contract"
@@ -30,9 +31,12 @@ export function useOrgMembers(): MembersState {
   return state
 }
 
-/** Reads GET /api/members. Throws when the request fails or the answer is malformed. */
+/**
+ * Reads GET /api/members. Throws when the request fails or the answer is
+ * malformed, and SessionExpiredError once the viewer's sign-in has run out.
+ */
 export async function fetchOrgMembers(signal?: AbortSignal): Promise<readonly MemberOption[]> {
-  const res = await fetch("/api/members", {
+  const res = await apiFetch("/api/members", {
     signal: signal ?? null,
     headers: { accept: "application/json" },
   })
