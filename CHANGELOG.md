@@ -31,13 +31,15 @@ Packages are released separately. A release section is headed
   environment. CI adds each block to a generated app and runs its checks. See
   `docs/blocks.md`.
 
+## [create-botyard-app@0.1.3] - 2026-11-25
+
 ### Changed
 
-- create-botyard-app (full-app template): `components.json` lists the
+- The `full-app` template: `components.json` lists the
   Botyard block registry as `@botyard`, so `npx shadcn add @botyard/<block>`
   and `npx shadcn search @botyard` work in a new app. The app's README
   explains how to add a block.
-- create-botyard-app (full-app template): the app calls its API through
+- The `full-app` template: the app calls its API through
   `apiFetch` (`src/lib/api-fetch.ts`), which handles the Bot Page sign-in
   running out after about an hour. `configureApiFetch` in `src/main.tsx`
   chooses whether the page reloads by itself (the default) or shows a banner
