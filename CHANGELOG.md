@@ -30,6 +30,20 @@ Packages are released separately. A release section is headed
   `https://blocks.botyard.io` by `registry.yml` behind the `blocks-publish`
   environment. CI adds each block to a generated app and runs its checks. See
   `docs/blocks.md`.
+- The `full-app` template can be run and debugged the same way in every app.
+  - `GET /api/ready` checks that Botyard answers and that the built UI loaded. It
+    answers 503 naming the failed check. `GET /api/health` stays a cheap
+    liveness check.
+  - The server checks its config at startup and stops with one clear message
+    when it is wrong. It logs one JSON startup line, and on SIGTERM or Ctrl-C
+    it lets requests in flight finish before it exits.
+  - It logs one JSON line per request with a request id, and never the viewer's
+    email. An error nothing caught answers a JSON 500 carrying that id; the
+    stack goes only to the log.
+  - Credentials and identity headers are blanked out of everything logged.
+  - Recent requests and errors are kept in `data/trace.jsonl`, capped and
+    rotated, and never served. `npm run trace` prints them.
+  - The README has a "When the app misbehaves" section.
 
 ## [create-botyard-app@0.1.3] - 2026-11-25
 

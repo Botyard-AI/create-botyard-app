@@ -10,6 +10,23 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
   build: { outDir: "dist/client", emptyOutDir: true },
+  server: {
+    fs: {
+      // Files the dev server must never send. A list here replaces Vite's own
+      // defaults, so they are repeated first (Vite 8). The app's data/ holds
+      // its trace and any stores: the dev server serves files under the
+      // app's root, and `npm run dev` can be published as a Bot Page.
+      deny: [
+        ".env",
+        ".env.*",
+        "*.{crt,pem,key,p12,pfx,cer,der}",
+        ".npmrc",
+        ".yarnrc.yml",
+        "**/.git/**",
+        `${path.resolve(import.meta.dirname, "data")}/**`,
+      ],
+    },
+  },
   test: {
     include: ["test/**/*.test.{ts,tsx}"],
   },

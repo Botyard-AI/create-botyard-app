@@ -32,6 +32,11 @@ type LoadOptions = {
   beforeOpen?: (file: string) => Promise<void>
   /** Test seam: the kernel's path of an open file, or null. Defaults to /proc. */
   openedPath?: (fd: number) => Promise<string | null>
+  /**
+   * Files never to serve, by where they really are (the kernel's path of
+   * the open file): the app's private files, such as its trace.
+   */
+  exclude?: (realFile: string) => boolean
 }
 
 /**
@@ -49,7 +54,7 @@ type LoadOptions = {
  * cannot place. Use `npm run dev` there.
  */
 export async function loadStatic(root: string, options: LoadOptions = {}): Promise<StaticFiles> {
-  const { beforeOpen, openedPath = procPath } = options
+  const { beforeOpen, openedPath = procPath, exclude = () => false } = options
   const realRoot = await realpath(root)
   const files = new Map<string, StaticFile>()
   const walk = async (dir: string, urlPath: string): Promise<void> => {
@@ -59,7 +64,7 @@ export async function loadStatic(root: string, options: LoadOptions = {}): Promi
       if (entry.isDirectory()) await walk(file, url)
       else if (entry.isFile()) {
         await beforeOpen?.(file)
-        const body = await readInside(realRoot, file, openedPath)
+        const body = await readInside(realRoot, file, openedPath, exclude)
         if (body !== null) {
           files.set(url, {
             body,
@@ -75,12 +80,13 @@ export async function loadStatic(root: string, options: LoadOptions = {}): Promi
 
 /**
  * The file's bytes, or null when it cannot be opened, is not a regular file,
- * or is outside `realRoot`. Throws when where it is cannot be determined.
+ * is outside `realRoot`, or is excluded. Throws when where it is cannot be determined.
  */
 async function readInside(
   realRoot: string,
   file: string,
-  openedPath: (fd: number) => Promise<string | null>
+  openedPath: (fd: number) => Promise<string | null>,
+  exclude: (realFile: string) => boolean
 ): Promise<Buffer | null> {
   let handle
   try {
@@ -97,7 +103,7 @@ async function readInside(
           "so the built UI is not served. Bots run on Linux; locally, use `npm run dev`."
       )
     }
-    if (!where.startsWith(realRoot + path.sep)) return null
+    if (!where.startsWith(realRoot + path.sep) || exclude(where)) return null
     return await handle.readFile()
   } finally {
     await handle.close()

@@ -12,6 +12,7 @@
     "build": "vite build",
     "start": "NODE_ENV=production node server/index.ts",
     "expose": "node scripts/expose.ts",
+    "trace": "node scripts/trace.ts",
     "test": "vitest run",
     "typecheck": "tsc -b",
     "lint": "eslint --max-warnings 0 .",
