@@ -34,6 +34,7 @@ Node 22 (22.18 or later) or Node 24: the server is TypeScript that Node runs dir
 | `npm run build` | Builds the UI into `dist/client`. |
 | `npm start` | Serves the API and the built UI (`NODE_ENV=production`). The UI is read into memory at startup: restart after a rebuild. Linux only (as in a bot): it checks each file through `/proc`, and refuses to start without it. |
 | `npm run expose` | Publishes the running app as a Bot Page through the `expose_botpage` tool. Add `-- --persistent` to keep it until revoked; otherwise it expires after two hours. |
+| `npm run trace` | Prints recent requests and errors from `data/trace.jsonl`. See [When the app misbehaves](#when-the-app-misbehaves). |
 | `npm test` | Tests against the mock runtime: no bot needed. |
 | `npm run typecheck`, `npm run lint`, `npm run format` | TypeScript, ESLint and Prettier. |
 
@@ -52,6 +53,10 @@ service and expose it with `--persistent`.
   - `GET /api/hello` shows the members-only guard, `requireMember`.
 - **Calling Botyard.** `@botyard/runtime` calls Botyard tools through the bot
   the app runs in: `call("list_org_members")`. Your code holds no credentials.
+  - `GET /api/health` says the process answers; `GET /api/ready` says what it
+    needs works (see below).
+  - `log.ts`, `trace.ts` and `ready.ts` are the logging, the short-term
+    trace and the readiness checks.
 - **`src/`** is the UI: React 19, Tailwind CSS v4 and
   [shadcn/ui](https://ui.shadcn.com). Add components with
   `npx shadcn@latest add <name>`.
@@ -93,6 +98,49 @@ installs any npm packages it needs. Then:
 - Use `requireMember` on every route that returns org data.
 - `BOTYARD_DEV_VIEWER` (used by `dev:mock`) is refused when
   `NODE_ENV=production` and ignored unless the server listens on loopback.
+
+## When the app misbehaves
+
+Work through these in order. Each step narrows down where the problem is.
+
+1. **Is it running?** `curl -s http://127.0.0.1:8787/api/health` answers
+   `{"ok":true}` while the process is up. No answer: it is not running, or
+   is on another port. Start it, or read its output for why it stopped.
+2. **Is it ready?** `curl -s http://127.0.0.1:8787/api/ready` checks what the
+   app needs: that Botyard answers through the bot (`runtime`) and, with
+   `npm start`, that the built UI loaded (`ui`). A 503 names the failed
+   check and how it failed (`timeout`, or the error's name). Add a check to
+   `readyChecks` in `server/index.ts` for anything your app loads or
+   connects to, such as a store.
+3. **What happened?** `npm run trace` prints the recent requests and errors.
+   - `npm run trace -- --errors` shows only warnings and errors, with stacks.
+   - A 500 answers `{"error":"internal_error","requestId":"…"}`.
+     `npm run trace -- --id <requestId>` shows that request and its error.
+   - `npm run trace -- --json` prints raw lines, for `jq`.
+4. **Did it start?** The first line the server prints is
+   `"event":"startup"`, with the app, port, transport, `NODE_ENV` and
+   version. If it stops at startup instead, the `startup_failed` line and
+   the message after it say why: a bad `botyard.json` or `PORT`, no Botyard
+   transport, the port in use, or no build.
+
+What the logs hold:
+
+- Every log line is one JSON object, on stdout (errors on stderr). A bot
+  service keeps them; `data/trace.jsonl` keeps the recent ones too.
+- A request line has the request id, method, path without the query string,
+  status, duration and the kind of viewer (`person`, `bot` or `none`), never
+  their email.
+- Credentials and identity are blanked out of everything logged, including
+  error messages: the `x-forwarded-user`, `cookie` and `authorization`
+  headers and their values.
+- `data/trace.jsonl` is capped at 1 MiB. When full, it becomes
+  `trace.1.jsonl`, replacing the previous one. Nothing serves it over HTTP:
+  read it on the bot's disk. `TRACE_FILE` moves it.
+
+The server stops cleanly on SIGTERM or Ctrl-C: it stops taking connections,
+lets requests in flight finish (up to 10 seconds), then exits. An error that
+nothing catches is logged, and the server exits with code 1, so a bot service
+restarts it.
 
 ## Troubleshooting
 
