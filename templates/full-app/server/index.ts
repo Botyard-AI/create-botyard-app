@@ -18,7 +18,7 @@ import { createLog } from "./log.ts"
 import { runtimeCheck, type ReadyChecks } from "./ready.ts"
 import { loadStatic, StaticLoadError, type StaticFiles } from "./static.ts"
 import { keepPrivate } from "./dev-guard.ts"
-import { openTrace, traceNames } from "./trace.ts"
+import { configuredTraceFiles, openTrace, traceNames } from "./trace.ts"
 
 const dev = process.argv.includes("--dev")
 // TRACE_FILE moves the trace (tests point it at a temporary directory); see trace.ts.
@@ -50,8 +50,11 @@ switch (opened.kind) {
   default:
     opened satisfies never
 }
-// The trace's files, by every name, for the dev server to keep out.
-const traceFiles = opened.kind === "opened" ? traceNames(opened.place) : []
+// The trace's files, by every name we know, for the dev server to keep out.
+// With the trace off they are kept out all the same: an earlier run may have
+// left them there.
+const traceFiles =
+  opened.kind === "opened" ? traceNames(opened.place) : configuredTraceFiles(appRoot)
 const config = await loadConfigOrFail()
 const runtime = createRuntimeOrFail()
 // /api/ready probes Botyard through a runtime of its own, so a probe never

@@ -53,7 +53,7 @@ const SERVED_DIRS = [path.join("dist", "client"), "public"]
  * runs without a trace.
  */
 export function traceFilePath(root: string, env: NodeJS.ProcessEnv = process.env): TracePlace {
-  const file = path.resolve(root, env["TRACE_FILE"] ?? TRACE_FILE)
+  const file = configuredTraceFile(root, env)
   if (!file.endsWith(".jsonl")) {
     throw new ConfigError(`TRACE_FILE must end in .jsonl, not "${file}".`)
   }
@@ -121,13 +121,27 @@ export function openTrace(
   }
 }
 
+/** The trace's path as configured, before anything about it is checked. */
+function configuredTraceFile(root: string, env: NodeJS.ProcessEnv): string {
+  return path.resolve(root, env["TRACE_FILE"] ?? TRACE_FILE)
+}
+
+/**
+ * The trace's two files as configured, whether or not this run can write
+ * them: an earlier run may have left them there, readable.
+ */
+export function configuredTraceFiles(root: string, env: NodeJS.ProcessEnv = process.env): string[] {
+  const file = configuredTraceFile(root, env)
+  return [file, previousFile(file)]
+}
+
 /** Every name the trace's two files go by: as configured, and really. */
 export function traceNames(place: TracePlace): string[] {
   return [...new Set([place.file, place.real].flatMap((f) => [f, previousFile(f)]))]
 }
 
 /** Where `dir` really is, or nothing when it does not exist. */
-export function realpathIfThere(dir: string): string[] {
+function realpathIfThere(dir: string): string[] {
   try {
     return [realpathSync(dir)]
   } catch (err) {

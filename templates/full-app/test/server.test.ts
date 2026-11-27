@@ -338,4 +338,51 @@ describe("the trace and the dev server", () => {
       expect(await run.closed).toBe(0)
     }
   }, 60_000)
+
+  // public/ a symlink loop: where it is cannot be found out, so this run
+  // cannot place a trace safely and runs without one. Only when the app has
+  // no public/ of its own, which is left alone.
+  test.skipIf(existsSync(publicDir))(
+    "with the trace off, an earlier run's trace files stay out of reach; the UI is served",
+    async () => {
+      await symlink(publicDir, publicDir)
+      cleanup.push(async () => {
+        await rm(publicDir, { force: true })
+      })
+      const name = `off-${String(process.pid)}-${String(Date.now())}`
+      const trace = path.join(dir, `${name}.jsonl`)
+      const rotated = path.join(dir, `${name}.1.jsonl`)
+      await writeFile(trace, '{"event":"active-marker"}\n')
+      await writeFile(rotated, '{"event":"rotated-marker"}\n')
+      const links = [
+        path.join(appRoot, "src", `${name}-active.txt`),
+        path.join(appRoot, "src", `${name}-rotated.txt`),
+      ]
+      cleanup.push(async () => {
+        for (const link of links) await rm(link, { force: true })
+      })
+      await symlink(trace, links[0] ?? "")
+      await symlink(rotated, links[1] ?? "")
+
+      const run = await startServer({ env: { TRACE_FILE: trace } })
+      await run.waitFor('"event":"trace_off"')
+      await run.waitFor('"event":"startup"')
+      for (const link of links) {
+        const rel = `/${path.relative(appRoot, link)}`
+        for (const probe of [rel, `${rel}?raw`, `${rel}?import`, `${rel}?url`, `/@fs${link}`]) {
+          const text = await (await fetch(`${run.base}${probe}`)).text()
+          expect(text, probe).not.toMatch(/active-marker|rotated-marker/)
+        }
+      }
+      // A real UI asset, through Vite.
+      const ui = await fetch(`${run.base}/src/main.tsx`)
+      expect(ui.status).toBe(200)
+      expect(await ui.text()).toContain("createRoot")
+      run.kill("SIGTERM")
+      expect(await run.closed).toBe(0)
+      // Nothing was written to the earlier run's files.
+      expect(await readFile(trace, "utf8")).toBe('{"event":"active-marker"}\n')
+    },
+    60_000
+  )
 })
