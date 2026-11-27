@@ -1,6 +1,6 @@
 // Starts the real server (server/index.ts) as a child process and checks how
 // it starts, logs, serves and stops.
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, beforeEach, describe, expect, test } from "vitest"
@@ -127,6 +127,16 @@ describe("starting and stopping", () => {
     30_000
   )
 })
+
+test("refuses to start when TRACE_FILE really points into the app, through a symlink", async () => {
+  // An alias outside the app for the app's own root: the path looks harmless.
+  const alias = path.join(dir, "alias")
+  await symlink(appRoot, alias)
+  const run = await startServer({ env: { TRACE_FILE: path.join(alias, "trace.jsonl") } })
+  expect(await run.closed).toBe(1)
+  expect(run.stderr()).toContain("not under its data/ directory")
+  await expect(stat(path.join(appRoot, "trace.jsonl"))).rejects.toThrow()
+}, 30_000)
 
 describe("errors nothing caught", () => {
   // A preload that, on SIGUSR2, throws or rejects outside any request.

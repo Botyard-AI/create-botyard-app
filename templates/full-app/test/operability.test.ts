@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, beforeEach, describe, expect, test } from "vitest"
@@ -358,38 +358,149 @@ describe("readiness checks", () => {
   })
 })
 
+describe("readiness: how a check ends", () => {
+  test("a check that throws synchronously recovers once it passes", async () => {
+    let calls = 0
+    const ready = createReadiness(
+      {
+        flaky: () => {
+          calls += 1
+          if (calls === 1) throw new TypeError("not yet")
+        },
+      },
+      { timeoutMs: 100, cacheMs: 20 }
+    )
+    expect(await ready()).toEqual({
+      ok: false,
+      checks: { flaky: { ok: false, reason: "TypeError" } },
+    })
+    await sleep(30)
+    expect(await ready()).toEqual({ ok: true, checks: { flaky: { ok: true } } })
+    expect(calls).toBe(2)
+  })
+
+  test("a check that only finishes while being stopped still reports timeout", async () => {
+    const ready = createReadiness(
+      {
+        stuck: (signal) =>
+          new Promise<void>((resolve) => {
+            // Resolves only when told to stop, as a well-behaved check might.
+            signal.addEventListener("abort", () => {
+              resolve()
+            })
+          }),
+      },
+      { timeoutMs: 30, cacheMs: 0 }
+    )
+    expect(await ready()).toEqual({
+      ok: false,
+      checks: { stuck: { ok: false, reason: "timeout" } },
+    })
+  })
+
+  test("a late result from an expired run never wins a later report", async () => {
+    let finish = (): void => {}
+    let runs = 0
+    const ready = createReadiness(
+      {
+        late: () =>
+          new Promise<void>((resolve) => {
+            runs += 1
+            finish = resolve
+          }),
+      },
+      { timeoutMs: 30, cacheMs: 0 }
+    )
+    expect((await ready()).ok).toBe(false)
+    // The expired run is still going; a new report must not race it again.
+    const second = ready()
+    finish()
+    expect(await second).toEqual({ ok: false, checks: { late: { ok: false, reason: "timeout" } } })
+    expect(runs).toBe(1)
+  })
+})
+
 describe("trace file", () => {
   test("rotates before the cap, keeping one previous file; neither passes the cap", async () => {
     const file = path.join(dir, "data", "trace.jsonl")
     const trace = new TraceFile(file, { maxBytes: 200 })
-    for (let i = 0; i < 20; i += 1) trace.write({ i, pad: "x".repeat(40) })
+    const time = new Date().toISOString()
+    for (let i = 0; i < 20; i += 1) trace.write(JSON.stringify({ i, pad: "x".repeat(40) }), time)
     // One record bigger than a whole file becomes a short note.
-    trace.write({ i: 20, pad: "x".repeat(500) })
+    trace.write(JSON.stringify({ i: 20, pad: "x".repeat(500) }), time)
     for (const name of [file, previousFile(file)]) {
       expect((await stat(name)).size, name).toBeLessThanOrEqual(200)
     }
     const all = readTrace(file)
     expect(all.at(-2)).toMatchObject({ i: 19 })
-    expect(all.at(-1)).toMatchObject({ event: "trace_record_too_big" })
+    expect(all.at(-1)).toMatchObject({ event: "trace_record_too_big", time })
   })
 
-  test("TRACE_FILE must end in .jsonl and, inside the app, be under data/", () => {
-    const root = path.join(dir, "app")
-    expect(traceFilePath(root, {})).toBe(path.join(root, "data", "trace.jsonl"))
-    expect(traceFilePath(root, { TRACE_FILE: "data/x/t.jsonl" })).toBe(
-      path.join(root, "data", "x", "t.jsonl")
-    )
-    expect(traceFilePath(root, { TRACE_FILE: "/var/tmp/t.jsonl" })).toBe("/var/tmp/t.jsonl")
-    for (const bad of [
-      "data/trace.log",
-      "/var/tmp/trace",
-      "dist/client/t.jsonl",
-      "t.jsonl",
-      "data.jsonl",
-    ]) {
-      expect(() => traceFilePath(root, { TRACE_FILE: bad }), bad).toThrow(ConfigError)
-    }
-    expect(() => new TraceFile(path.join(dir, "trace.log"))).toThrow(ConfigError)
+  describe("where TRACE_FILE may point", () => {
+    let root: string
+    beforeEach(async () => {
+      root = path.join(dir, "app")
+      await mkdir(path.join(root, "dist", "client"), { recursive: true })
+      await mkdir(path.join(root, "public"), { recursive: true })
+    })
+    const place = (TRACE_FILE?: string): string =>
+      traceFilePath(root, TRACE_FILE === undefined ? {} : { TRACE_FILE }).real
+
+    test("data/ inside the app, or anywhere outside it", () => {
+      expect(place()).toBe(path.join(root, "data", "trace.jsonl"))
+      expect(place("data/x/t.jsonl")).toBe(path.join(root, "data", "x", "t.jsonl"))
+      expect(place(path.join(dir, "elsewhere", "t.jsonl"))).toBe(
+        path.join(dir, "elsewhere", "t.jsonl")
+      )
+    })
+
+    test.each([
+      ["not .jsonl", "data/trace.log"],
+      ["no extension", "data/trace"],
+      ["the built UI", "dist/client/t.jsonl"],
+      ["the app root", "t.jsonl"],
+      ["a name beginning data", "data.jsonl"],
+      ["a name beginning with two dots", "..trace.jsonl"],
+      ["public/", "public/t.jsonl"],
+    ])("refuses %s", (_label, bad) => {
+      expect(() => place(bad)).toThrow(ConfigError)
+    })
+
+    test("refuses a path that is really inside a served directory, through a symlink", async () => {
+      // An alias outside the app pointing into its built UI.
+      await symlink(path.join(root, "dist", "client"), path.join(dir, "alias"))
+      expect(() => place(path.join(dir, "alias", "t.jsonl"))).toThrow(ConfigError)
+      // data/ itself a symlink into public/.
+      await symlink(path.join(root, "public"), path.join(root, "data"))
+      expect(() => place()).toThrow(ConfigError)
+    })
+
+    test("refuses an existing trace or rotated file that is a symlink", async () => {
+      await mkdir(path.join(root, "data"))
+      const target = path.join(root, "dist", "client", "x.jsonl")
+      await writeFile(target, "")
+      await symlink(target, path.join(root, "data", "trace.jsonl"))
+      expect(() => place()).toThrow(ConfigError)
+      await rm(path.join(root, "data", "trace.jsonl"))
+      await symlink(target, path.join(root, "data", "trace.1.jsonl"))
+      expect(() => place()).toThrow(ConfigError)
+    })
+
+    test("a TraceFile name must end in .jsonl", () => {
+      expect(() => new TraceFile(path.join(dir, "trace.log"))).toThrow(ConfigError)
+    })
+  })
+
+  test("never writes through a trace file swapped for a symlink", async () => {
+    const file = path.join(dir, "data", "trace.jsonl")
+    const errors: unknown[] = []
+    const trace = new TraceFile(file, { onError: (err) => errors.push(err) })
+    const outside = path.join(dir, "outside.txt")
+    await writeFile(outside, "")
+    await symlink(outside, file)
+    trace.write('{"event":"x"}', new Date().toISOString())
+    expect(await readFile(outside, "utf8")).toBe("")
+    expect(errors).toHaveLength(1)
   })
 
   test("skips a line cut short by a crash", async () => {

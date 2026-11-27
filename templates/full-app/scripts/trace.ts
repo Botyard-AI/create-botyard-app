@@ -20,7 +20,7 @@ const { values } = parseArgs({
   },
 })
 
-const file = traceFilePath(appRoot)
+const file = traceFilePath(appRoot).real
 let records = readTrace(file)
 if (records.length === 0) {
   process.stdout.write(`No trace yet in ${file}. Start the app and make a request.\n`)

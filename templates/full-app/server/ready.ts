@@ -51,54 +51,61 @@ type ReadinessOptions = {
  * - A report is reused for `cacheMs`, and callers who arrive while one is
  *   being made share it.
  * - Each check runs at most once at a time. One that runs out of time is
- *   told to stop (its signal is aborted) and reported as "timeout"; until it
- *   has actually finished, later reports wait on it rather than start
- *   another copy of it.
+ *   reported as "timeout" and then told to stop (its signal is aborted).
+ *   Until it has actually finished, later reports say "timeout" too, rather
+ *   than start another copy of it.
  */
 export function createReadiness(
   checks: ReadyChecks,
   { log, timeoutMs = 3000, cacheMs = 5000 }: ReadinessOptions = {}
 ): () => Promise<ReadyReport> {
   let cached: { at: number; report: Promise<ReadyReport> } | undefined
-  /** Checks still running, from this report or an earlier one. */
+  /** The outcome of each check still running, from this report or an earlier one. */
   const running = new Map<string, Promise<CheckResult>>()
 
+  // One run of a check. Its outcome is decided once, by whichever comes
+  // first: the check settling, or its deadline. At the deadline "timeout" is
+  // recorded first and only then is the check told to stop, so nothing the
+  // check does while stopping can turn it into a success. The run stays in
+  // `running` until the check has actually settled, so a later report gets
+  // the same, already-decided outcome rather than starting it again.
   const start = (name: string, check: ReadyCheck): Promise<CheckResult> => {
     const controller = new AbortController()
+    let decide: (result: CheckResult) => void = () => {}
+    const state = { decided: false }
+    const outcome = new Promise<CheckResult>((resolve) => {
+      decide = (result) => {
+        if (state.decided) return
+        state.decided = true
+        resolve(result)
+      }
+    })
     const timer = setTimeout(() => {
+      log?.warn("ready_check_failed", { check: name, reason: "timeout", timeoutMs })
+      decide({ ok: false, reason: "timeout" })
       controller.abort()
     }, timeoutMs)
-    const run = (async (): Promise<CheckResult> => {
+    running.set(name, outcome)
+    void (async () => {
       try {
+        // Called only after the run is registered, so even a check that
+        // throws synchronously settles (and is forgotten) like any other.
+        await Promise.resolve()
         await check(controller.signal)
-        return { ok: true }
+        decide({ ok: true })
       } catch (err) {
-        log?.warn("ready_check_failed", { check: name }, err)
-        return { ok: false, reason: err instanceof Error ? err.name : "error" }
+        if (!state.decided) log?.warn("ready_check_failed", { check: name }, err)
+        decide({ ok: false, reason: err instanceof Error ? err.name : "error" })
       } finally {
         clearTimeout(timer)
         running.delete(name)
       }
     })()
-    running.set(name, run)
-    return run
+    return outcome
   }
 
-  const runOne = async (name: string, check: ReadyCheck): Promise<CheckResult> => {
-    const run = running.get(name) ?? start(name, check)
-    let timer: NodeJS.Timeout | undefined
-    const timeout = new Promise<CheckResult>((resolve) => {
-      timer = setTimeout(() => {
-        log?.warn("ready_check_failed", { check: name, reason: "timeout", timeoutMs })
-        resolve({ ok: false, reason: "timeout" })
-      }, timeoutMs)
-    })
-    try {
-      return await Promise.race([run, timeout])
-    } finally {
-      clearTimeout(timer)
-    }
-  }
+  const runOne = (name: string, check: ReadyCheck): Promise<CheckResult> =>
+    running.get(name) ?? start(name, check)
 
   const report = async (): Promise<ReadyReport> => {
     const entries = await Promise.all(

@@ -52,8 +52,9 @@ export function createLog({ trace, write = writeStd }: LogOptions = {}): Log {
   ): void => {
     try {
       const clean = scrubber(secrets)
+      const time = new Date().toISOString()
       const record: Record<string, Value | ErrorInfo> = {
-        time: new Date().toISOString(),
+        time,
         level,
         event,
       }
@@ -61,8 +62,9 @@ export function createLog({ trace, write = writeStd }: LogOptions = {}): Log {
         record[key] = typeof value === "string" ? clean(value) : value
       }
       if (error !== undefined) record["error"] = describeError(error, clean)
-      write(level, JSON.stringify(record))
-      trace?.write(record)
+      const line = JSON.stringify(record)
+      write(level, line)
+      trace?.write(line, time)
     } catch {
       // Never let logging fail the caller. Say that a line was lost, if even that works.
       try {

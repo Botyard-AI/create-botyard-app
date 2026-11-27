@@ -1,29 +1,80 @@
-import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs"
+import {
+  closeSync,
+  constants,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  writeSync,
+} from "node:fs"
 import path from "node:path"
 import { ConfigError } from "./config.ts"
 
 /** Where the trace lives, under the app's root. Not under dist/, which `npm start` serves. */
 const TRACE_FILE = path.join("data", "trace.jsonl")
 
+/** Where the trace is: as configured, and where that really is on disk. */
+type TracePlace = { readonly file: string; readonly real: string }
+
 /**
  * The trace's path: data/trace.jsonl, or `TRACE_FILE` from the environment
- * (relative to `root`). It must end in `.jsonl`, so the rotated file
- * (`.1.jsonl`) has a name of its own. Inside the app it must be under data/,
- * which neither `npm start` nor the dev server serves (see vite.config.ts).
+ * (relative to `root`). Creates its directory, then checks where the file
+ * really is, with symlinks followed, and throws a ConfigError when:
+ * - the name does not end in `.jsonl` (the rotated file, `.1.jsonl`, needs a
+ *   name of its own);
+ * - it really is inside the app but not under its own data/ directory: the
+ *   rest of the app can be served (dist/client by `npm start`, the root and
+ *   public/ by `npm run dev`). data/ itself being a symlink into such a place
+ *   is caught the same way;
+ * - the trace or the rotated file already exists as anything but a regular
+ *   file, such as a symlink.
+ * Outside the app is fine: nothing serves it there.
  */
-export function traceFilePath(root: string, env: NodeJS.ProcessEnv = process.env): string {
+export function traceFilePath(root: string, env: NodeJS.ProcessEnv = process.env): TracePlace {
   const file = path.resolve(root, env["TRACE_FILE"] ?? TRACE_FILE)
   if (!file.endsWith(".jsonl")) {
     throw new ConfigError(`TRACE_FILE must end in .jsonl, not "${file}".`)
   }
-  const inApp = path.relative(root, file)
-  const outside = inApp.startsWith("..") || path.isAbsolute(inApp)
-  if (!outside && !inApp.startsWith(`data${path.sep}`)) {
+  let real: string
+  let realRoot: string
+  try {
+    mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+    real = path.join(realpathSync(path.dirname(file)), path.basename(file))
+    realRoot = realpathSync(root)
+  } catch (err) {
     throw new ConfigError(
-      `TRACE_FILE "${file}" is inside the app but not under data/, where it could be served.`
+      `Cannot use ${file} for the trace: ${err instanceof Error ? err.message : String(err)}`
     )
   }
-  return file
+  const notServed = (where: string, base: string): boolean =>
+    !isInside(base, where) || isInside(path.join(base, "data"), where)
+  if (!notServed(file, root) || !notServed(real, realRoot)) {
+    throw new ConfigError(
+      `TRACE_FILE "${file}" (really ${real}) is inside the app but not under its data/ directory, ` +
+        "where it could be served."
+    )
+  }
+  for (const name of [real, previousFile(real)]) {
+    let stats
+    try {
+      stats = lstatSync(name)
+    } catch {
+      continue // Not there yet: fine.
+    }
+    if (!stats.isFile()) {
+      throw new ConfigError(`The trace file ${name} exists and is not a regular file.`)
+    }
+  }
+  return { file, real }
+}
+
+/** True when `child` is `parent` or below it, compared by whole path components. */
+function isInside(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child)
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel))
 }
 
 /** The current file is rotated once it reaches this size. */
@@ -73,12 +124,16 @@ export class TraceFile {
     this.#size = sizeOf(file)
   }
 
-  write(record: Readonly<Record<string, unknown>>): void {
+  /**
+   * Appends one record: `json` is the line log.ts already serialized, `time`
+   * its timestamp, used if the record is too big and only a note is kept.
+   */
+  write(json: string, time: string): void {
     if (this.#broken) return
-    let line = `${JSON.stringify(record)}\n`
+    let line = `${json}\n`
     // A record bigger than a whole file would break the cap: keep a note of it instead.
     if (Buffer.byteLength(line) > this.#maxBytes) {
-      const note = { time: record["time"], event: "trace_record_too_big", bytes: line.length }
+      const note = { time, event: "trace_record_too_big", bytes: Buffer.byteLength(line) }
       line = `${JSON.stringify(note)}\n`
     }
     if (Buffer.byteLength(line) > this.#maxBytes) return
@@ -87,7 +142,17 @@ export class TraceFile {
         renameSync(this.file, previousFile(this.file))
         this.#size = 0
       }
-      appendFileSync(this.file, line, { mode: 0o600 })
+      // O_NOFOLLOW: if the file has been swapped for a symlink, refuse to write through it.
+      const fd = openSync(
+        this.file,
+        constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW,
+        0o600
+      )
+      try {
+        writeSync(fd, line)
+      } finally {
+        closeSync(fd)
+      }
       this.#size += Buffer.byteLength(line)
     } catch (err) {
       this.#broken = true

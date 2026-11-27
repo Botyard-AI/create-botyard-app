@@ -21,7 +21,7 @@ import { previousFile, TraceFile, traceFilePath } from "./trace.ts"
 
 const dev = process.argv.includes("--dev")
 // TRACE_FILE moves the trace (tests point it at a temporary directory); see trace.ts.
-const { trace, traceError } = openTrace()
+const { trace, traceDeny, traceError } = openTrace()
 const log = createLog({ trace })
 let stopping = false
 
@@ -53,7 +53,7 @@ if (dev) {
       hmr: { server },
       // vite.config.ts keeps data/ out of what the dev server serves; this
       // adds the trace files themselves, wherever TRACE_FILE puts them.
-      fs: { deny: trace ? [trace.file, previousFile(trace.file)] : [] },
+      fs: { deny: traceDeny },
     },
   })
   ui = vite.middlewares
@@ -156,17 +156,19 @@ function shutdown(reason: string): void {
   })
 }
 
-function openTrace(): { trace?: TraceFile; traceError?: ConfigError } {
+function openTrace(): { trace?: TraceFile; traceDeny: string[]; traceError?: ConfigError } {
   try {
-    const file = traceFilePath(appRoot)
-    const trace = new TraceFile(file, {
+    const { file, real } = traceFilePath(appRoot)
+    // Both spellings of both files, for the dev server's deny list.
+    const traceDeny = [...new Set([file, real].flatMap((f) => [f, previousFile(f)]))]
+    const trace = new TraceFile(real, {
       onError: (err) => {
         process.stderr.write(`trace: turned off, could not write ${file}: ${String(err)}\n`)
       },
     })
-    return { trace }
+    return { trace, traceDeny }
   } catch (err) {
-    if (err instanceof ConfigError) return { traceError: err }
+    if (err instanceof ConfigError) return { traceDeny: [], traceError: err }
     throw err
   }
 }
