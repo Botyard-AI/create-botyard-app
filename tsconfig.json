@@ -4,6 +4,7 @@
     "vitest.config.ts",
     "scripts/check-blocks.ts",
     "scripts/smoke-template.ts",
+    "scripts/smoke-template.test.ts",
     "scripts/blocks/*.ts"
   ]
 }
