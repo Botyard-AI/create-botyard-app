@@ -112,23 +112,36 @@ describe("smoke-template", () => {
     assert.equal(existsSync(await readFile(path.join(app, "trace-dir.txt"), "utf8")), false)
   })
 
-  it("stopped while the app drains, it waits for that drain without a second SIGTERM", async () => {
-    await standIn({ drainMs: 1500 })
-    const code = await run({}, (child) => {
-      // Once the app has its first SIGTERM (the run's normal stop), stop the runner.
-      const poll = setInterval(() => {
-        if (existsSync(path.join(app, "draining.txt"))) {
+  for (const signals of [1, 2]) {
+    it(`stopped (${String(signals)}x) while the app drains, it waits for that drain without a second SIGTERM`, async () => {
+      await standIn({ drainMs: 1500 })
+      let reached = false
+      const code = await run({}, (child) => {
+        // Once the app has its first SIGTERM (the run's normal stop), stop the runner.
+        const poll = setInterval(() => {
+          if (!existsSync(path.join(app, "draining.txt"))) return
           clearInterval(poll)
+          reached = true
           child.kill("SIGTERM")
-        }
-      }, 20)
+          // The second one apart from the first, once the runner has handled
+          // it: two sent together arrive as one.
+          if (signals === 2) again = setTimeout(() => child.kill("SIGTERM"), 300)
+        }, 20)
+        let again: NodeJS.Timeout | undefined
+        // A runner that exits first must not leave either timer running.
+        child.once("exit", () => {
+          clearInterval(poll)
+          clearTimeout(again)
+        })
+      })
+      assert.equal(reached, true, "the app never started draining")
+      assert.equal(code, 1)
+      assert.equal(await readFile(path.join(app, "terms.txt"), "utf8"), "1")
+      assert.equal(await readFile(path.join(app, "stopped.txt"), "utf8"), "trace dir present")
+      assert.equal(alive(Number(await readFile(path.join(app, "pid.txt"), "utf8"))), false)
+      assert.equal(existsSync(await readFile(path.join(app, "trace-dir.txt"), "utf8")), false)
     })
-    assert.equal(code, 1)
-    assert.equal(await readFile(path.join(app, "terms.txt"), "utf8"), "1")
-    assert.equal(await readFile(path.join(app, "stopped.txt"), "utf8"), "trace dir present")
-    assert.equal(alive(Number(await readFile(path.join(app, "pid.txt"), "utf8"))), false)
-    assert.equal(existsSync(await readFile(path.join(app, "trace-dir.txt"), "utf8")), false)
-  })
+  }
 
   it("fails, and cleans up, when the app exits before starting", async () => {
     await standIn({ failAtStart: true })

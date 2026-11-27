@@ -10,7 +10,7 @@
 // does not stop. It returns only once the app has exited (SIGTERM, then
 // SIGKILL after 15 s), so nothing is left running and the app's temporary
 // trace directory is removed only after the app stops writing to it.
-// SIGINT or SIGTERM to this script stops the app the same way.
+// SIGINT or SIGTERM to this script stops the app the same way, and fails the run.
 
 import { spawn, type ChildProcess } from "node:child_process"
 import { mkdtemp, rm } from "node:fs/promises"
@@ -100,11 +100,16 @@ function cleanup(): Promise<void> {
   return cleaning
 }
 
+// A signal records the cancellation and starts cleanup; the main path below
+// still owns the exit, after joining that same cleanup, so a cancelled run
+// always ends with 1 and never before the app has stopped. `on`, not `once`:
+// a repeated signal must land here too rather than fall through to Node's
+// default and kill this script with the app running and its trace left behind.
+const run = { cancelled: false }
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.once(signal, () => {
-    void cleanup().then(() => {
-      process.exit(1)
-    })
+  process.on(signal, () => {
+    run.cancelled = true
+    void cleanup()
   })
 }
 
@@ -127,6 +132,9 @@ try {
       reject(new Error(`the app exited with ${String(code)} before starting:\n${out}`))
     })
   })
+  // Cancelled while it started: cleanup is already stopping it, so do not
+  // start a smoke run that cleanup would not stop.
+  if (run.cancelled) throw new Error("cancelled")
   const child = spawn(process.execPath, ["scripts/smoke.ts", `http://127.0.0.1:${String(port)}`], {
     cwd: app,
     stdio: "inherit",
@@ -139,5 +147,5 @@ try {
 }
 await cleanup()
 // A server that did not stop cleanly (killed, or a non-zero exit) fails the run.
-if ((await serverExited) !== 0) status = 1
+if ((await serverExited) !== 0 || run.cancelled) status = 1
 process.exit(status)
