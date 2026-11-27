@@ -138,8 +138,11 @@ What the logs hold:
 - `data/trace.jsonl` is capped at 1 MiB. Before it would grow past that, it
   becomes `trace.1.jsonl`, replacing the previous one. Nothing serves it over
   HTTP: read it on the bot's disk. `TRACE_FILE` moves it: the name must end in
-  `.jsonl`, and if it is inside the app, even through a symlink, it must be under
-  `data/`. Otherwise the server refuses to start.
+  `.jsonl`; if it is inside the app, even through a symlink, it must be under
+  `data/`; and it must not be inside `dist/client` or `public/`, even when
+  those are symlinks to somewhere outside the app. Otherwise the server
+  refuses to start. If its directory cannot be created (a read-only disk, say),
+  the server starts without a trace and logs `trace_off`.
 - `data/` is also where stores belong. `npm start` serves only `dist/client`,
   and `vite.config.ts` keeps `data/` out of what `npm run dev` serves.
 

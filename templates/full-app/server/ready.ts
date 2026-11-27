@@ -43,7 +43,8 @@ type ReadinessOptions = {
  * Runs the checks for `GET /api/ready`, all at once, each with a deadline.
  *
  * Anyone who can open the page can call /api/ready, so a report says only
- * which check failed and how ("timeout", or the error's name), never the
+ * which check failed and how ("timeout", or the error's class name, such as
+ * "TypeError"; see failureCode), never the
  * error's message, and never anything about the viewer. The message goes to
  * the log, where `npm run trace` shows it.
  *
@@ -94,8 +95,11 @@ export function createReadiness(
         await check(controller.signal)
         decide({ ok: true })
       } catch (err) {
-        if (!state.decided) log?.warn("ready_check_failed", { check: name }, err)
-        decide({ ok: false, reason: err instanceof Error ? err.name : "error" })
+        // Already reported as "timeout": nothing more to say.
+        if (!state.decided) {
+          log?.warn("ready_check_failed", { check: name }, err)
+          decide({ ok: false, reason: failureCode(err) })
+        }
       } finally {
         clearTimeout(timer)
         running.delete(name)
@@ -122,5 +126,20 @@ export function createReadiness(
       cached = { at: now, report: report() }
     }
     return cached.report
+  }
+}
+
+/**
+ * How a failed check is reported: the error's name when it is a plain
+ * identifier of up to 40 characters, such as "TypeError" or "AbortError";
+ * otherwise "error". Reading the name cannot throw out of here: an error's
+ * `name` can be a getter that throws.
+ */
+function failureCode(err: unknown): string {
+  try {
+    const name: unknown = err instanceof Error ? err.name : undefined
+    return typeof name === "string" && /^[A-Za-z]\w{0,39}$/.test(name) ? name : "error"
+  } catch {
+    return "error"
   }
 }

@@ -7,7 +7,13 @@ import { describeError, scrubber } from "../server/log.ts"
 import { createRuntime, type Transport } from "@botyard/runtime"
 import { createReadiness, runtimeCheck } from "../server/ready.ts"
 import { loadStatic } from "../server/static.ts"
-import { previousFile, readTrace, TraceFile, traceFilePath } from "../server/trace.ts"
+import {
+  previousFile,
+  readTrace,
+  TraceFile,
+  traceFilePath,
+  TraceUnavailableError,
+} from "../server/trace.ts"
 import { asViewer, captureLog, startApp } from "./helpers.ts"
 
 let dir: string
@@ -379,6 +385,73 @@ describe("readiness: how a check ends", () => {
     expect(calls).toBe(2)
   })
 
+  test("an error whose name cannot be read is a 503 all the same, and nothing escapes", async () => {
+    const escaped: unknown[] = []
+    const onEscape = (err: unknown): void => {
+      escaped.push(err)
+    }
+    process.on("unhandledRejection", onEscape)
+    try {
+      const { log, lines } = captureLog()
+      const base = await startApp({
+        log,
+        readyChecks: {
+          tricky: () => {
+            const err = new Error("store for ada@example.com is gone")
+            Object.defineProperty(err, "name", {
+              get: () => {
+                throw new Error("no name for you")
+              },
+            })
+            throw err
+          },
+        },
+      })
+      const res = await Promise.race([
+        fetch(`${base}/api/ready`),
+        sleep(2000).then(() => {
+          throw new Error("/api/ready never answered")
+        }),
+      ])
+      expect(res.status).toBe(503)
+      expect(await res.json()).toEqual({
+        ok: false,
+        checks: { tricky: { ok: false, reason: "error" } },
+      })
+      await sleep(20)
+      expect(escaped).toEqual([])
+      expect(lines.join("\n")).toContain("ready_check_failed")
+      expect(lines.join("\n")).not.toContain("ada@example.com")
+    } finally {
+      process.off("unhandledRejection", onEscape)
+    }
+  })
+
+  test.each([
+    ["a plain class name", "RangeError", "RangeError"],
+    ["a name with spaces and an email", "bad for ada@example.com", "error"],
+    ["a very long name", "E".repeat(41), "error"],
+    ["an empty name", "", "error"],
+  ])("reports %s as a bounded code", async (_label, name, reason) => {
+    const ready = createReadiness({
+      named: () => {
+        const err = new Error("x")
+        err.name = name
+        throw err
+      },
+    })
+    expect((await ready()).checks).toEqual({ named: { ok: false, reason } })
+  })
+
+  test("a thrown value that is not an Error is reported as error", async () => {
+    const ready = createReadiness({
+      odd: () => {
+        throw { name: "ada@example.com" }
+      },
+    })
+    expect((await ready()).checks).toEqual({ odd: { ok: false, reason: "error" } })
+  })
+
   test("a check that only finishes while being stopped still reports timeout", async () => {
     const ready = createReadiness(
       {
@@ -473,6 +546,33 @@ describe("trace file", () => {
       // data/ itself a symlink into public/.
       await symlink(path.join(root, "public"), path.join(root, "data"))
       expect(() => place()).toThrow(ConfigError)
+    })
+
+    test.each([
+      ["the built UI", path.join("dist", "client")],
+      ["public/", "public"],
+    ])(
+      "refuses a path inside %s when that is a symlink to a directory outside the app",
+      async (_label, served) => {
+        // A release directory outside the app, served through the symlink.
+        const release = path.join(dir, "release")
+        await mkdir(release)
+        await rm(path.join(root, served), { recursive: true })
+        await symlink(release, path.join(root, served))
+        expect(() => place(path.join(release, "t.jsonl"))).toThrow(ConfigError)
+        expect(() => place(path.join(release, "deep", "t.jsonl"))).toThrow(ConfigError)
+        // Beside it is fine.
+        expect(place(path.join(dir, "logs", "t.jsonl"))).toBe(path.join(dir, "logs", "t.jsonl"))
+      }
+    )
+
+    test("a directory that cannot be created means no trace, not a config error", async () => {
+      // A file where the trace's directory should be.
+      await writeFile(path.join(dir, "blocker"), "")
+      expect(() => place(path.join(dir, "blocker", "t.jsonl"))).toThrow(TraceUnavailableError)
+      // Unsafe placement is still refused first, whatever the disk says.
+      await writeFile(path.join(root, "dist", "client", "blocker"), "")
+      expect(() => place("dist/client/blocker/t.jsonl")).toThrow(ConfigError)
     })
 
     test("refuses an existing trace or rotated file that is a symlink", async () => {

@@ -9,7 +9,7 @@
 // It reads the file from disk: the trace is never served over HTTP.
 import { parseArgs } from "node:util"
 import { appRoot } from "../server/config.ts"
-import { readTrace, traceFilePath } from "../server/trace.ts"
+import { readTrace, traceFilePath, TraceUnavailableError } from "../server/trace.ts"
 
 const { values } = parseArgs({
   options: {
@@ -20,7 +20,15 @@ const { values } = parseArgs({
   },
 })
 
-const file = traceFilePath(appRoot).real
+let file: string
+try {
+  file = traceFilePath(appRoot).real
+} catch (err) {
+  // The server runs without a trace in this case, so there is none to show.
+  if (!(err instanceof TraceUnavailableError)) throw err
+  process.stdout.write(`No trace: ${err.message}\n`)
+  process.exit(0)
+}
 let records = readTrace(file)
 if (records.length === 0) {
   process.stdout.write(`No trace yet in ${file}. Start the app and make a request.\n`)

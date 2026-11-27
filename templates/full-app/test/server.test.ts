@@ -1,5 +1,6 @@
 // Starts the real server (server/index.ts) as a child process and checks how
 // it starts, logs, serves and stops.
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -136,6 +137,41 @@ test("refuses to start when TRACE_FILE really points into the app, through a sym
   expect(await run.closed).toBe(1)
   expect(run.stderr()).toContain("not under its data/ directory")
   await expect(stat(path.join(appRoot, "trace.jsonl"))).rejects.toThrow()
+}, 30_000)
+
+// public/ made a symlink to a directory outside the app, as a release layout
+// might. Only when the app has no public/ of its own, which is left alone.
+const publicDir = path.join(appRoot, "public")
+test.skipIf(existsSync(publicDir))(
+  "refuses to start when the trace would land in a served directory that lives outside the app",
+  async () => {
+    const release = path.join(dir, "release")
+    await mkdir(release)
+    await symlink(release, publicDir)
+    cleanup.push(async () => {
+      await rm(publicDir, { force: true })
+    })
+    const run = await startServer({ env: { TRACE_FILE: path.join(release, "trace.jsonl") } })
+    expect(await run.closed).toBe(1)
+    expect(run.stderr()).toContain("not under its data/ directory")
+    await expect(stat(path.join(release, "trace.jsonl"))).rejects.toThrow()
+  },
+  30_000
+)
+
+test("starts and stays healthy when the trace cannot be kept", async () => {
+  // A file where the trace's directory should be.
+  const blocker = path.join(dir, "blocker")
+  await writeFile(blocker, "")
+  const run = await startServer({ env: { TRACE_FILE: path.join(blocker, "trace.jsonl") } })
+  const warning: unknown = JSON.parse(await run.waitFor('"event":"trace_off"'))
+  expect(warning).toMatchObject({ level: "warn" })
+  await run.waitFor('"event":"startup"')
+  expect((await fetch(`${run.base}/api/health`)).status).toBe(200)
+  expect((await fetch(`${run.base}/api/ready`)).status).toBe(200)
+  run.kill("SIGTERM")
+  expect(await run.closed).toBe(0)
+  expect((await stat(blocker)).isFile()).toBe(true)
 }, 30_000)
 
 describe("errors nothing caught", () => {

@@ -17,12 +17,14 @@ import { appRoot, ConfigError, HOST, loadConfig } from "./config.ts"
 import { createLog } from "./log.ts"
 import { runtimeCheck, type ReadyChecks } from "./ready.ts"
 import { loadStatic, StaticLoadError, type StaticFiles } from "./static.ts"
-import { previousFile, TraceFile, traceFilePath } from "./trace.ts"
+import { previousFile, TraceFile, traceFilePath, TraceUnavailableError } from "./trace.ts"
 
 const dev = process.argv.includes("--dev")
 // TRACE_FILE moves the trace (tests point it at a temporary directory); see trace.ts.
-const { trace, traceDeny, traceError } = openTrace()
+const { trace, traceDeny, traceError, traceOff } = openTrace()
 const log = createLog({ trace })
+// The trace is optional: when it cannot be kept, say so and carry on.
+if (traceOff !== undefined) log.warn("trace_off", { message: traceOff })
 let stopping = false
 
 /** Stops at startup with one clear line, before anything listens. */
@@ -156,10 +158,20 @@ function shutdown(reason: string): void {
   })
 }
 
-function openTrace(): { trace?: TraceFile; traceDeny: string[]; traceError?: ConfigError } {
+type OpenedTrace = {
+  trace?: TraceFile
+  /** For the dev server's deny list. */
+  traceDeny: string[]
+  /** TRACE_FILE is set to somewhere unsafe: refuse to start. */
+  traceError?: ConfigError
+  /** Why there is no trace, when it could not be kept. */
+  traceOff?: string
+}
+
+function openTrace(): OpenedTrace {
   try {
     const { file, real } = traceFilePath(appRoot)
-    // Both spellings of both files, for the dev server's deny list.
+    // Both spellings of both files.
     const traceDeny = [...new Set([file, real].flatMap((f) => [f, previousFile(f)]))]
     const trace = new TraceFile(real, {
       onError: (err) => {
@@ -169,6 +181,7 @@ function openTrace(): { trace?: TraceFile; traceDeny: string[]; traceError?: Con
     return { trace, traceDeny }
   } catch (err) {
     if (err instanceof ConfigError) return { traceDeny: [], traceError: err }
+    if (err instanceof TraceUnavailableError) return { traceDeny: [], traceOff: err.message }
     throw err
   }
 }

@@ -20,42 +20,68 @@ const TRACE_FILE = path.join("data", "trace.jsonl")
 type TracePlace = { readonly file: string; readonly real: string }
 
 /**
+ * The trace cannot be kept, for a reason outside the app's control (its
+ * directory cannot be created or read). The trace is optional: the app runs
+ * without it. A trace placed where it could be served is a ConfigError instead.
+ */
+export class TraceUnavailableError extends Error {
+  override name = "TraceUnavailableError"
+}
+
+/** What `npm start` and `npm run dev` serve, besides the app's root itself. */
+const SERVED_DIRS = [path.join("dist", "client"), "public"]
+
+/**
  * The trace's path: data/trace.jsonl, or `TRACE_FILE` from the environment
  * (relative to `root`). Creates its directory, then checks where the file
  * really is, with symlinks followed, and throws a ConfigError when:
  * - the name does not end in `.jsonl` (the rotated file, `.1.jsonl`, needs a
  *   name of its own);
- * - it really is inside the app but not under its own data/ directory: the
- *   rest of the app can be served (dist/client by `npm start`, the root and
- *   public/ by `npm run dev`). data/ itself being a symlink into such a place
- *   is caught the same way;
+ * - it is inside the app but not under its own data/ directory: the rest of
+ *   the app can be served (dist/client by `npm start`, the root and public/
+ *   by `npm run dev`). Both the path as written and the real path are
+ *   checked, so data/ being a symlink into such a place is caught too;
+ * - it really is inside dist/client or public/, wherever they really are:
+ *   either can be a symlink to a directory outside the app, such as a release
+ *   directory, and is served from there;
  * - the trace or the rotated file already exists as anything but a regular
  *   file, such as a symlink.
- * Outside the app is fine: nothing serves it there.
+ * Anywhere else outside the app is fine: nothing serves it there.
+ *
+ * Throws a TraceUnavailableError when the directory cannot be created or
+ * resolved (read-only disk, a file where a directory should be): the caller
+ * runs without a trace.
  */
 export function traceFilePath(root: string, env: NodeJS.ProcessEnv = process.env): TracePlace {
   const file = path.resolve(root, env["TRACE_FILE"] ?? TRACE_FILE)
   if (!file.endsWith(".jsonl")) {
     throw new ConfigError(`TRACE_FILE must end in .jsonl, not "${file}".`)
   }
+  const notServed = (where: string, base: string): boolean =>
+    !isInside(base, where) || isInside(path.join(base, "data"), where)
+  const unsafe = (really: string): ConfigError =>
+    new ConfigError(
+      `TRACE_FILE "${file}" (really ${really}) is inside the app but not under its data/ ` +
+        "directory, where it could be served."
+    )
+  // As written, before anything is created on disk.
+  if (!notServed(file, root)) throw unsafe(file)
+
   let real: string
   let realRoot: string
+  let servedDirs: string[]
   try {
     mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
     real = path.join(realpathSync(path.dirname(file)), path.basename(file))
     realRoot = realpathSync(root)
+    servedDirs = SERVED_DIRS.flatMap((dir) => realpathIfThere(path.join(root, dir)))
   } catch (err) {
-    throw new ConfigError(
-      `Cannot use ${file} for the trace: ${err instanceof Error ? err.message : String(err)}`
+    throw new TraceUnavailableError(
+      `Cannot keep a trace at ${file}: ${err instanceof Error ? err.message : String(err)}`
     )
   }
-  const notServed = (where: string, base: string): boolean =>
-    !isInside(base, where) || isInside(path.join(base, "data"), where)
-  if (!notServed(file, root) || !notServed(real, realRoot)) {
-    throw new ConfigError(
-      `TRACE_FILE "${file}" (really ${real}) is inside the app but not under its data/ directory, ` +
-        "where it could be served."
-    )
+  if (!notServed(real, realRoot) || servedDirs.some((dir) => isInside(dir, real))) {
+    throw unsafe(real)
   }
   for (const name of [real, previousFile(real)]) {
     let stats
@@ -69,6 +95,16 @@ export function traceFilePath(root: string, env: NodeJS.ProcessEnv = process.env
     }
   }
   return { file, real }
+}
+
+/** Where `dir` really is, or nothing when it does not exist. */
+function realpathIfThere(dir: string): string[] {
+  try {
+    return [realpathSync(dir)]
+  } catch (err) {
+    if (err instanceof Error && "code" in err && err.code === "ENOENT") return []
+    throw err
+  }
 }
 
 /** True when `child` is `parent` or below it, compared by whole path components. */
