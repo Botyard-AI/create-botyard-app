@@ -138,9 +138,10 @@ export function createApp({
     try {
       await route(req, res)
     } catch (err) {
-      log.error("unhandled_error", { requestId, method, path, error: err }, requestSecrets(req))
+      // Answer first: the 500 must not depend on logging.
       if (!res.headersSent) sendJson(res, 500, { error: "internal_error", requestId })
       else res.destroy()
+      log.error("unhandled_error", { requestId, method, path }, err, requestSecrets(req))
     }
   }
 }

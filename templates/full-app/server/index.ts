@@ -15,18 +15,13 @@ import { createRuntime, TransportError } from "@botyard/runtime"
 import { createApp, type Middleware } from "./app.ts"
 import { appRoot, ConfigError, HOST, loadConfig } from "./config.ts"
 import { createLog } from "./log.ts"
-import type { ReadyChecks } from "./ready.ts"
+import { runtimeCheck, type ReadyChecks } from "./ready.ts"
 import { loadStatic, StaticLoadError, type StaticFiles } from "./static.ts"
-import { TraceFile, traceFilePath } from "./trace.ts"
+import { previousFile, TraceFile, traceFilePath } from "./trace.ts"
 
 const dev = process.argv.includes("--dev")
-// TRACE_FILE moves the trace elsewhere (tests point it at a temporary directory).
-const traceFile = traceFilePath(appRoot)
-const trace = new TraceFile(traceFile, {
-  onError: (err) => {
-    process.stderr.write(`trace: turned off, could not write ${traceFile}: ${String(err)}\n`)
-  },
-})
+// TRACE_FILE moves the trace (tests point it at a temporary directory); see trace.ts.
+const { trace, traceError } = openTrace()
 const log = createLog({ trace })
 let stopping = false
 
@@ -37,8 +32,12 @@ function fail(reason: string, message: string): never {
   process.exit(1)
 }
 
+if (traceError !== undefined) fail("config", traceError.message)
 const config = await loadConfigOrFail()
 const runtime = createRuntimeOrFail()
+// /api/ready probes Botyard through a runtime of its own, so a probe never
+// touches the tool list the app's own calls use.
+const probe = createRuntimeOrFail()
 const botpage = createBotPageOrFail()
 
 const server = createServer()
@@ -49,7 +48,13 @@ if (dev) {
   const vite = await createVite({
     root: appRoot,
     appType: "spa",
-    server: { middlewareMode: true, hmr: { server } },
+    server: {
+      middlewareMode: true,
+      hmr: { server },
+      // vite.config.ts keeps data/ out of what the dev server serves; this
+      // adds the trace files themselves, wherever TRACE_FILE puts them.
+      fs: { deny: trace ? [trace.file, previousFile(trace.file)] : [] },
+    },
   })
   ui = vite.middlewares
   closeVite = () => vite.close()
@@ -59,8 +64,7 @@ const staticFiles = dev ? undefined : await loadBuiltUi()
 // What GET /api/ready checks. Add your own: a store that loads a file, a
 // database connection. Each throws when not ready.
 const readyChecks: ReadyChecks = {
-  // The runtime answers: a fresh tool listing, not a cached one.
-  runtime: () => runtime.listTools({ refresh: true, timeoutMs: 2500 }),
+  runtime: runtimeCheck(probe),
   ...(staticFiles && {
     ui: () => {
       if (!staticFiles.has("/index.html")) throw new Error("dist/client has no index.html")
@@ -107,7 +111,7 @@ log.info("startup", {
 // and stop; the bot's service manager starts it again.
 for (const event of ["uncaughtException", "unhandledRejection"] as const) {
   process.on(event, (err: unknown) => {
-    log.error(event, { error: err })
+    log.error(event, {}, err)
     process.exitCode = 1
     shutdown(event)
   })
@@ -134,14 +138,37 @@ function shutdown(reason: string): void {
     process.exit(process.exitCode ?? 1)
   }, 10_000)
   force.unref()
-  server.close(() => {
-    void (closeVite?.() ?? Promise.resolve()).finally(() => {
-      log.info("stopped", {})
-      process.exit()
+  // Vite's hot reload keeps a WebSocket open on this server for each dev tab,
+  // and server.close() waits for those too: close them now, alongside the drain.
+  const viteClosed = (closeVite?.() ?? Promise.resolve()).catch((err: unknown) => {
+    log.warn("vite_close_failed", {}, err)
+  })
+  const httpClosed = new Promise<void>((resolve) => {
+    server.close(() => {
+      resolve()
     })
   })
   // Keep-alive connections with no request in flight would hold close() open.
   server.closeIdleConnections()
+  void Promise.all([viteClosed, httpClosed]).then(() => {
+    log.info("stopped")
+    process.exit()
+  })
+}
+
+function openTrace(): { trace?: TraceFile; traceError?: ConfigError } {
+  try {
+    const file = traceFilePath(appRoot)
+    const trace = new TraceFile(file, {
+      onError: (err) => {
+        process.stderr.write(`trace: turned off, could not write ${file}: ${String(err)}\n`)
+      },
+    })
+    return { trace }
+  } catch (err) {
+    if (err instanceof ConfigError) return { traceError: err }
+    throw err
+  }
 }
 
 async function loadConfigOrFail(): Promise<Awaited<ReturnType<typeof loadConfig>>> {

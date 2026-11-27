@@ -1,12 +1,29 @@
 import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from "node:fs"
 import path from "node:path"
+import { ConfigError } from "./config.ts"
 
-/** Where the trace lives, under the app's root. Not under dist/: nothing serves it. */
+/** Where the trace lives, under the app's root. Not under dist/, which `npm start` serves. */
 const TRACE_FILE = path.join("data", "trace.jsonl")
 
-/** The trace's path: `TRACE_FILE` from the environment, relative to `root`, or data/trace.jsonl. */
+/**
+ * The trace's path: data/trace.jsonl, or `TRACE_FILE` from the environment
+ * (relative to `root`). It must end in `.jsonl`, so the rotated file
+ * (`.1.jsonl`) has a name of its own. Inside the app it must be under data/,
+ * which neither `npm start` nor the dev server serves (see vite.config.ts).
+ */
 export function traceFilePath(root: string, env: NodeJS.ProcessEnv = process.env): string {
-  return path.resolve(root, env["TRACE_FILE"] ?? TRACE_FILE)
+  const file = path.resolve(root, env["TRACE_FILE"] ?? TRACE_FILE)
+  if (!file.endsWith(".jsonl")) {
+    throw new ConfigError(`TRACE_FILE must end in .jsonl, not "${file}".`)
+  }
+  const inApp = path.relative(root, file)
+  const outside = inApp.startsWith("..") || path.isAbsolute(inApp)
+  if (!outside && !inApp.startsWith(`data${path.sep}`)) {
+    throw new ConfigError(
+      `TRACE_FILE "${file}" is inside the app but not under data/, where it could be served.`
+    )
+  }
+  return file
 }
 
 /** The current file is rotated once it reaches this size. */
@@ -23,9 +40,10 @@ type TraceOptions = {
  * A short-term record of recent requests and errors, for the bot to read with
  * `npm run trace`: one JSON object per line in `data/trace.jsonl`.
  *
- * It is bounded: when the file reaches `maxBytes` it is renamed to
- * `trace.1.jsonl` (replacing the previous one) and a new file starts, so the
- * two together never hold much more than twice `maxBytes`.
+ * It is bounded: before a line would take the file past `maxBytes`, the file
+ * is renamed to `trace.1.jsonl` (replacing the previous one) and a new one
+ * starts. Neither file exceeds `maxBytes`; a single record too big for one is
+ * replaced by a short note.
  *
  * It is private by construction: it is a file on the bot's disk, and no route
  * serves it. Records are redacted before they get here (see log.ts).
@@ -42,6 +60,7 @@ export class TraceFile {
   #broken = false
 
   constructor(file: string, { maxBytes = TRACE_MAX_BYTES, onError = () => {} }: TraceOptions = {}) {
+    if (!file.endsWith(".jsonl")) throw new ConfigError(`A trace file must end in .jsonl: ${file}`)
     this.file = file
     this.#maxBytes = maxBytes
     this.#onError = onError
@@ -54,9 +73,15 @@ export class TraceFile {
     this.#size = sizeOf(file)
   }
 
-  write(record: object): void {
+  write(record: Readonly<Record<string, unknown>>): void {
     if (this.#broken) return
-    const line = `${JSON.stringify(record)}\n`
+    let line = `${JSON.stringify(record)}\n`
+    // A record bigger than a whole file would break the cap: keep a note of it instead.
+    if (Buffer.byteLength(line) > this.#maxBytes) {
+      const note = { time: record["time"], event: "trace_record_too_big", bytes: line.length }
+      line = `${JSON.stringify(note)}\n`
+    }
+    if (Buffer.byteLength(line) > this.#maxBytes) return
     try {
       if (this.#size > 0 && this.#size + Buffer.byteLength(line) > this.#maxBytes) {
         renameSync(this.file, previousFile(this.file))

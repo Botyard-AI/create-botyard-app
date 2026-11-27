@@ -1,10 +1,13 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, beforeEach, describe, expect, test } from "vitest"
-import { redact } from "../server/log.ts"
+import { ConfigError } from "../server/config.ts"
+import { describeError, scrubber } from "../server/log.ts"
+import { createRuntime, type Transport } from "@botyard/runtime"
+import { createReadiness, runtimeCheck } from "../server/ready.ts"
 import { loadStatic } from "../server/static.ts"
-import { previousFile, readTrace, TraceFile } from "../server/trace.ts"
+import { previousFile, readTrace, TraceFile, traceFilePath } from "../server/trace.ts"
 import { asViewer, captureLog, startApp } from "./helpers.ts"
 
 let dir: string
@@ -95,7 +98,13 @@ describe("/api/ready", () => {
 
   test("health stays a cheap liveness check", async () => {
     let runs = 0
-    const base = await startApp({ readyChecks: { runtime: () => (runs += 1) } })
+    const base = await startApp({
+      readyChecks: {
+        runtime: () => {
+          runs += 1
+        },
+      },
+    })
     expect((await fetch(`${base}/api/health`)).status).toBe(200)
     expect(runs).toBe(0)
   })
@@ -213,28 +222,174 @@ describe("redaction", () => {
     }
   })
 
-  test("sensitive keys are dropped at any depth", () => {
-    expect(
-      redact({ a: { Authorization: "x", cookie: "y", nested: [{ password: "z", ok: 1 }] } })
-    ).toEqual({
-      a: {
-        Authorization: "[redacted]",
-        cookie: "[redacted]",
-        nested: [{ password: "[redacted]", ok: 1 }],
+  // Anything can be thrown, not only an Error: its keys and contents never reach a line.
+  test.each([
+    ["an object keyed by the viewer", () => ({ [email]: "x", [cookie]: { nested: email } })],
+    ["a bigint", () => 10n],
+    ["a string", () => `boom for ${email}`],
+    [
+      "an Error whose getter throws",
+      () =>
+        Object.defineProperty(new Error("x"), "message", {
+          get: () => {
+            throw new Error("no")
+          },
+        }),
+    ],
+  ])("throwing %s still answers a JSON 500, logged safely", async (_label, make) => {
+    const trace = new TraceFile(path.join(dir, "data", "trace.jsonl"))
+    const { log, lines } = captureLog(trace)
+    const base = await startApp({
+      log,
+      ui: () => {
+        throw make()
       },
     })
+    const res = await fetch(`${base}/page`, { headers: { "x-forwarded-user": email, cookie } })
+    expect(res.status).toBe(500)
+    expect(await res.json()).toMatchObject({ error: "internal_error" })
+    await sleep(20)
+    const error = records(lines).find((r) => r["event"] === "unhandled_error")
+    expect(error).toBeDefined()
+    for (const text of [lines.join("\n"), await readFile(trace.file, "utf8")]) {
+      expect(text).toContain("unhandled_error")
+      expect(text).not.toContain(email)
+      expect(text).not.toContain("s3cr3t-cookie-value")
+    }
+  })
+
+  test("only a real Error is read, and only its name, message and stack", () => {
+    const clean = scrubber([])
+    expect(describeError(new TypeError(`bad ${email}`), clean)).toMatchObject({
+      name: "TypeError",
+      message: "bad [redacted]",
+    })
+    expect(describeError({ [email]: 1 }, clean)).toEqual({ thrown: "object" })
+    expect(describeError(null, clean)).toEqual({ thrown: "null" })
+  })
+
+  test("email addresses and Bearer tokens are blanked out of any line", () => {
+    const clean = scrubber([])
+    expect(clean("for grace@example.com with Bearer abc.def-123")).toBe(
+      "for [redacted] with [redacted]"
+    )
+    // Not email addresses: package paths in a stack.
+    expect(clean("at node_modules/@botyard/runtime/dist/x.js (vite@8.3.8)")).toBe(
+      "at node_modules/@botyard/runtime/dist/x.js (vite@8.3.8)"
+    )
+  })
+})
+
+describe("readiness checks", () => {
+  // A transport whose tool listings can be made to hang; tool calls always answer.
+  const controllable = (): { transport: Transport; hang: () => void } => {
+    let hanging = false
+    return {
+      hang: () => {
+        hanging = true
+      },
+      transport: {
+        kind: "mock",
+        listTools: () =>
+          hanging
+            ? new Promise(() => {})
+            : Promise.resolve([{ name: "list_org_members", inputSchema: {} }]),
+        callTool: () =>
+          Promise.resolve({ content: [], structuredContent: { ok: 1 }, isError: false }),
+      },
+    }
+  }
+
+  test("probing Botyard through its own runtime leaves the app's calls alone", async () => {
+    const { transport, hang } = controllable()
+    const app = createRuntime({ transport })
+    await app.call("list_org_members") // the app learns the tool list
+    hang()
+    const ready = createReadiness(
+      { runtime: runtimeCheck(createRuntime({ transport })) },
+      { timeoutMs: 50 }
+    )
+    expect(await ready()).toMatchObject({ ok: false, checks: { runtime: { reason: "timeout" } } })
+    await expect(app.call("list_org_members", {}, { timeoutMs: 500 })).resolves.toEqual({ ok: 1 })
+  })
+
+  test("(why: probing through the app's own runtime would hold up its calls)", async () => {
+    const { transport, hang } = controllable()
+    const app = createRuntime({ transport })
+    await app.call("list_org_members")
+    hang()
+    const ready = createReadiness({ runtime: runtimeCheck(app) }, { timeoutMs: 50 })
+    await ready()
+    // The call waits on the probe's listing, past its own deadline.
+    const call = app.call("list_org_members", {}, { timeoutMs: 100 }).then(
+      () => "answered",
+      () => "failed"
+    )
+    expect(await Promise.race([call, sleep(300).then(() => "still waiting")])).toBe("still waiting")
+  })
+
+  test("a check that outlives its deadline is aborted, and never runs twice at once", async () => {
+    let runs = 0
+    let finish = (): void => {}
+    let aborted = false
+    const ready = createReadiness(
+      {
+        slow: (signal) =>
+          new Promise<void>((resolve) => {
+            runs += 1
+            signal.addEventListener("abort", () => {
+              aborted = true
+            })
+            finish = resolve
+          }),
+      },
+      { timeoutMs: 30, cacheMs: 0 }
+    )
+    expect(await ready()).toEqual({ ok: false, checks: { slow: { ok: false, reason: "timeout" } } })
+    expect(aborted).toBe(true)
+    // Still running: later reports wait on the same run instead of starting another.
+    expect((await ready()).ok).toBe(false)
+    expect((await ready()).ok).toBe(false)
+    expect(runs).toBe(1)
+    finish()
+    await sleep(5)
+    expect((await ready()).ok).toBe(false)
+    expect(runs).toBe(2)
   })
 })
 
 describe("trace file", () => {
-  test("rotates at its size cap, keeping one previous file", () => {
+  test("rotates before the cap, keeping one previous file; neither passes the cap", async () => {
     const file = path.join(dir, "data", "trace.jsonl")
     const trace = new TraceFile(file, { maxBytes: 200 })
     for (let i = 0; i < 20; i += 1) trace.write({ i, pad: "x".repeat(40) })
+    // One record bigger than a whole file becomes a short note.
+    trace.write({ i: 20, pad: "x".repeat(500) })
+    for (const name of [file, previousFile(file)]) {
+      expect((await stat(name)).size, name).toBeLessThanOrEqual(200)
+    }
     const all = readTrace(file)
-    expect(all.length).toBeGreaterThan(0)
-    expect(all.length).toBeLessThan(20)
-    expect(all.at(-1)).toMatchObject({ i: 19 })
+    expect(all.at(-2)).toMatchObject({ i: 19 })
+    expect(all.at(-1)).toMatchObject({ event: "trace_record_too_big" })
+  })
+
+  test("TRACE_FILE must end in .jsonl and, inside the app, be under data/", () => {
+    const root = path.join(dir, "app")
+    expect(traceFilePath(root, {})).toBe(path.join(root, "data", "trace.jsonl"))
+    expect(traceFilePath(root, { TRACE_FILE: "data/x/t.jsonl" })).toBe(
+      path.join(root, "data", "x", "t.jsonl")
+    )
+    expect(traceFilePath(root, { TRACE_FILE: "/var/tmp/t.jsonl" })).toBe("/var/tmp/t.jsonl")
+    for (const bad of [
+      "data/trace.log",
+      "/var/tmp/trace",
+      "dist/client/t.jsonl",
+      "t.jsonl",
+      "data.jsonl",
+    ]) {
+      expect(() => traceFilePath(root, { TRACE_FILE: bad }), bad).toThrow(ConfigError)
+    }
+    expect(() => new TraceFile(path.join(dir, "trace.log"))).toThrow(ConfigError)
   })
 
   test("skips a line cut short by a crash", async () => {

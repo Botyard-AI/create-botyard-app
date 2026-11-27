@@ -6,6 +6,7 @@ import { createRuntime, loadMockFixtures, type Runtime } from "@botyard/runtime"
 import { afterEach } from "vitest"
 import { createApp, type AppOptions } from "../server/app.ts"
 import { createLog, type Log } from "../server/log.ts"
+import { runtimeCheck } from "../server/ready.ts"
 import type { TraceFile } from "../server/trace.ts"
 
 /** The mock runtime, loaded with the same fixtures as `npm run dev:mock`. */
@@ -50,7 +51,7 @@ export async function startApp(options: Omit<AppOptions, "botpage"> = {}): Promi
   const handler = createApp({
     botpage,
     log: captureLog().log,
-    readyChecks: { runtime: () => runtime.listTools({ refresh: true }) },
+    readyChecks: { runtime: runtimeCheck(mockRuntime()) },
     ...options,
   })
   const server = createServer((req, res) => void handler(req, res))

@@ -1,160 +1,108 @@
-// Starts the real server (server/index.ts) as a child process, the way
-// `npm run dev:mock` does, and checks how it starts, logs and stops.
-import { spawn, type ChildProcess } from "node:child_process"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
-import { connect, createServer } from "node:net"
+// Starts the real server (server/index.ts) as a child process and checks how
+// it starts, logs, serves and stops.
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { fileURLToPath } from "node:url"
 import { afterEach, beforeEach, describe, expect, test } from "vitest"
 import { loadConfig } from "../server/config.ts"
-
-const appRoot = fileURLToPath(new URL("..", import.meta.url))
+import { appRoot, fakeBotyard, stopServers, startServer } from "./server-harness.ts"
 
 let dir: string
-const children: ChildProcess[] = []
+const cleanup: (() => Promise<void>)[] = []
 beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "full-app-server-"))
 })
 afterEach(async () => {
-  for (const child of children.splice(0)) child.kill("SIGKILL")
+  await stopServers()
+  for (const undo of cleanup.splice(0)) await undo()
   await rm(dir, { recursive: true, force: true })
 })
 
-async function packageVersion(): Promise<unknown> {
+async function packageVersion(): Promise<string> {
   const pkg: unknown = JSON.parse(await readFile(path.join(appRoot, "package.json"), "utf8"))
-  return typeof pkg === "object" && pkg !== null && "version" in pkg ? pkg.version : undefined
+  const version = typeof pkg === "object" && pkg !== null && "version" in pkg ? pkg.version : null
+  if (typeof version !== "string") throw new Error("package.json has no version")
+  return version
 }
 
-async function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createServer()
-    probe.once("error", reject)
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address()
-      const port = typeof address === "object" && address !== null ? address.port : 0
-      probe.close(() => {
-        resolve(port)
-      })
-    })
-  })
-}
+const asAda = { headers: { "x-forwarded-user": "ada@example.com" } }
 
-type Run = {
-  child: ChildProcess
-  stdout: () => string
-  stderr: () => string
-  exited: Promise<number | null>
-  /** Resolves with the first stdout line containing `text`. */
-  waitFor: (text: string) => Promise<string>
-}
-
-function start(env: Record<string, string>): Run {
-  const child = spawn(process.execPath, ["server/index.ts", "--dev"], {
-    cwd: appRoot,
-    env: {
-      PATH: process.env["PATH"] ?? "",
-      HOME: dir,
-      NODE_ENV: "development",
-      BOTYARD_RUNTIME_TRANSPORT: "mock",
-      BOTYARD_RUNTIME_MOCK_FIXTURES: "fixtures/dev.json",
-      TRACE_FILE: path.join(dir, "trace.jsonl"),
-      ...env,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-  })
-  children.push(child)
-  let out = ""
-  let err = ""
-  const waiters: { text: string; resolve: (line: string) => void }[] = []
-  child.stdout.on("data", (chunk: Buffer) => {
-    out += chunk.toString()
-    for (const w of [...waiters]) {
-      const line = out.split("\n").find((l) => l.includes(w.text))
-      if (line !== undefined) {
-        waiters.splice(waiters.indexOf(w), 1)
-        w.resolve(line)
-      }
-    }
-  })
-  child.stderr.on("data", (chunk: Buffer) => {
-    err += chunk.toString()
-  })
-  const exited = new Promise<number | null>((resolve) => {
-    child.once("exit", (code) => {
-      resolve(code)
-    })
-  })
-  return {
-    child,
-    stdout: () => out,
-    stderr: () => err,
-    exited,
-    waitFor: (text) =>
-      new Promise((resolve, reject) => {
-        const line = out.split("\n").find((l) => l.includes(text))
-        if (line !== undefined) resolve(line)
-        else waiters.push({ text, resolve })
-        void exited.then(() => {
-          reject(new Error(`exited before "${text}"\n${out}\n${err}`))
-        })
-      }),
-  }
-}
-
-describe("the server process", () => {
+describe("starting and stopping", () => {
   test("logs one startup line, serves, and stops cleanly on SIGTERM", async () => {
-    const port = await freePort()
-    const run = start({ PORT: String(port) })
+    const trace = path.join(dir, "trace.jsonl")
+    const run = await startServer({ env: { TRACE_FILE: trace } })
     const startup: unknown = JSON.parse(await run.waitFor('"event":"startup"'))
     expect(startup).toMatchObject({
       level: "info",
       app: (await loadConfig(appRoot, {})).name,
-      port,
+      version: await packageVersion(),
+      port: run.port,
       transport: "mock",
       nodeEnv: "development",
       mode: "dev",
     })
-    expect(startup).toHaveProperty("version", await packageVersion())
 
-    const base = `http://127.0.0.1:${String(port)}`
-    expect((await fetch(`${base}/api/health`)).status).toBe(200)
-    expect(await (await fetch(`${base}/api/ready`)).json()).toMatchObject({ ok: true })
+    expect((await fetch(`${run.base}/api/health`)).status).toBe(200)
+    expect(await (await fetch(`${run.base}/api/ready`)).json()).toMatchObject({ ok: true })
 
-    run.child.kill("SIGTERM")
-    expect(await run.exited).toBe(0)
+    run.kill("SIGTERM")
+    expect(await run.closed).toBe(0)
     expect(run.stdout()).toContain('"event":"shutdown","reason":"SIGTERM"')
     expect(run.stdout()).toContain('"event":"stopped"')
-
-    const trace = await readFile(path.join(dir, "trace.jsonl"), "utf8")
-    expect(trace).toContain('"path":"/api/ready"')
-    expect(trace).toContain('"event":"startup"')
+    const traced = await readFile(trace, "utf8")
+    expect(traced).toContain('"path":"/api/ready"')
+    expect(traced).toContain('"event":"startup"')
   }, 30_000)
 
-  test("lets a request in flight finish before it stops", async () => {
-    const port = await freePort()
-    const run = start({ PORT: String(port) })
+  test("a request already in its handler finishes before the server stops", async () => {
+    const botyard = await fakeBotyard()
+    cleanup.push(botyard.close)
+    const run = await startServer({
+      env: { BOTYARD_RUNTIME_TRANSPORT: "mcp", BOTYARD_RUNTIME_MCP_URL: botyard.url },
+    })
     await run.waitFor('"event":"startup"')
-    // Send half a request, so it is in flight when SIGTERM arrives.
-    const socket = connect(port, "127.0.0.1")
-    await new Promise((resolve) => {
-      socket.once("connect", resolve)
-    })
-    socket.write("GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\n")
-    let answer = ""
-    socket.on("data", (chunk: Buffer) => {
-      answer += chunk.toString()
-    })
-    run.child.kill("SIGTERM")
+    // /api/hello asks Botyard for the member list; hold that call open.
+    const held = botyard.holdCalls()
+    const pending = fetch(`${run.base}/api/hello`, asAda)
+    await held.arrived
+    run.kill("SIGTERM")
     await run.waitFor('"event":"shutdown"')
-    await new Promise((resolve) => {
-      setTimeout(resolve, 200)
+    held.release()
+    const res = await pending
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ message: "Hello, Ada Lovelace!" })
+    expect(await run.closed).toBe(0)
+  }, 30_000)
+
+  test("an open hot-reload connection does not hold up shutdown", async () => {
+    const botyard = await fakeBotyard()
+    cleanup.push(botyard.close)
+    const run = await startServer({
+      env: { BOTYARD_RUNTIME_TRANSPORT: "mcp", BOTYARD_RUNTIME_MCP_URL: botyard.url },
     })
-    expect(run.child.exitCode).toBeNull()
-    socket.end("\r\n")
-    expect(await run.exited).toBe(0)
-    expect(answer).toMatch(/^HTTP\/1\.1 200/)
-    expect(answer).toContain('{"ok":true}')
+    await run.waitFor('"event":"startup"')
+    // What a dev tab keeps open: Vite's HMR WebSocket on the same port.
+    const socket = new WebSocket(`ws://127.0.0.1:${String(run.port)}/`, "vite-hmr")
+    await new Promise<void>((resolve, reject) => {
+      socket.addEventListener("open", () => {
+        resolve()
+      })
+      socket.addEventListener("error", () => {
+        reject(new Error("no HMR connection"))
+      })
+    })
+    const held = botyard.holdCalls()
+    const pending = fetch(`${run.base}/api/hello`, asAda)
+    await held.arrived
+
+    const stopped = Date.now()
+    run.kill("SIGTERM")
+    await run.waitFor('"event":"shutdown"')
+    held.release()
+    expect((await pending).status).toBe(200)
+    expect(await run.closed).toBe(0)
+    expect(Date.now() - stopped).toBeLessThan(5000)
+    expect(run.stdout()).not.toContain("shutdown_forced")
   }, 30_000)
 
   test.each([
@@ -165,15 +113,112 @@ describe("the server process", () => {
       "BOTYARD_DEV_VIEWER",
     ],
     ["no Botyard transport", { BOTYARD_RUNTIME_TRANSPORT: "carrier-pigeon" }, "npm run dev:mock"],
+    ["a TRACE_FILE that is not .jsonl", { TRACE_FILE: "/tmp/trace.log" }, ".jsonl"],
+    ["a TRACE_FILE the app could serve", { TRACE_FILE: "dist/client/trace.jsonl" }, "data/"],
   ])(
     "fails fast with a clear message on %s",
     async (_label, env, hint) => {
-      const run = start(env)
-      expect(await run.exited).toBe(1)
+      const run = await startServer({ env })
+      expect(await run.closed).toBe(1)
       expect(run.stderr()).toContain(hint)
       expect(run.stderr()).toContain('"event":"startup_failed"')
       expect(run.stderr()).not.toMatch(/^\s+at /m)
     },
     30_000
   )
+})
+
+describe("errors nothing caught", () => {
+  // A preload that, on SIGUSR2, throws or rejects outside any request.
+  const preload = async (kind: "throw" | "reject"): Promise<string> => {
+    const file = path.join(dir, `fatal-${kind}.mjs`)
+    const fail =
+      kind === "throw"
+        ? 'setImmediate(() => { throw new Error("fatal for grace@example.com") })'
+        : 'void Promise.reject(new Error("fatal for grace@example.com"))'
+    await writeFile(file, `process.on("SIGUSR2", () => { ${fail} })\n`)
+    return file
+  }
+
+  test.each([
+    ["throw", "uncaughtException"],
+    ["reject", "unhandledRejection"],
+  ] as const)(
+    "%s: logged, then the process exits 1",
+    async (kind, event) => {
+      const trace = path.join(dir, "trace.jsonl")
+      const run = await startServer({
+        env: { TRACE_FILE: trace },
+        nodeArgs: ["--import", await preload(kind)],
+      })
+      await run.waitFor('"event":"startup"')
+      run.kill("SIGUSR2")
+      expect(await run.closed).toBe(1)
+      const line: unknown = JSON.parse(await run.waitFor(`"event":"${event}"`))
+      expect(line).toMatchObject({ level: "error", error: { name: "Error" } })
+      expect(JSON.stringify(line)).toContain("fatal for [redacted]")
+      expect(run.stdout()).toContain('"event":"stopped"')
+      const traced = await readFile(trace, "utf8")
+      expect(traced).toContain(event)
+      expect(traced).not.toContain("grace@example.com")
+    },
+    30_000
+  )
+})
+
+describe("the trace and the dev server", () => {
+  // `npm run dev` serves files under the app's root through Vite, and can be
+  // published as a Bot Page: the trace must not be among them.
+  test("neither trace file can be fetched; the trace reader still works", async () => {
+    const name = `test-${String(process.pid)}-${String(Date.now())}`
+    const dataDir = path.join(appRoot, "data")
+    const inData = path.join(dataDir, `${name}.jsonl`)
+    // Outside the app but, in a monorepo, inside what Vite may serve (/@fs/).
+    const beside = path.join(appRoot, "..", `.${name}.jsonl`)
+    for (const trace of [inData, beside]) {
+      cleanup.push(async () => {
+        await rm(trace, { force: true })
+        await rm(trace.replace(/\.jsonl$/, ".1.jsonl"), { force: true })
+      })
+    }
+    await mkdir(dataDir, { recursive: true })
+    // Anything else in data/, such as a block's store, is kept out too.
+    const store = path.join(dataDir, `${name}-store.json`)
+    cleanup.push(async () => {
+      await rm(store, { force: true })
+    })
+    await writeFile(store, '{"store":"store-marker"}')
+
+    for (const trace of [inData, beside]) {
+      const rotated = trace.replace(/\.jsonl$/, ".1.jsonl")
+      await writeFile(rotated, '{"event":"rotated-marker"}\n')
+      const run = await startServer({ env: { TRACE_FILE: trace } })
+      await run.waitFor('"event":"startup"')
+      await fetch(`${run.base}/api/health?q=active-marker`)
+      await fetch(`${run.base}/active-marker`)
+      expect(await readFile(trace, "utf8")).toContain("active-marker")
+
+      const rel = path.relative(appRoot, trace)
+      const relRotated = path.relative(appRoot, rotated)
+      for (const probe of [
+        `/${rel}`,
+        `/${relRotated}`,
+        `/@fs${trace}`,
+        `/@fs${rotated}`,
+        `/${rel}?raw`,
+        `/${rel}?import`,
+        `/data/${name}-store.json`,
+        `/@fs${store}`,
+      ]) {
+        const text = await (await fetch(`${run.base}${probe}`)).text()
+        expect(text, probe).not.toContain("active-marker")
+        expect(text, probe).not.toContain("rotated-marker")
+        expect(text, probe).not.toContain("store-marker")
+      }
+      // Vite's own deny list still applies.
+      expect(await (await fetch(`${run.base}/.npmrc`)).text()).not.toContain("ignore-scripts")
+      run.kill("SIGTERM")
+      expect(await run.closed).toBe(0)
+    }
+  }, 60_000)
 })

@@ -130,15 +130,21 @@ What the logs hold:
 - A request line has the request id, method, path without the query string,
   status, duration and the kind of viewer (`person`, `bot` or `none`), never
   their email.
-- Credentials and identity are blanked out of everything logged, including
-  error messages: the `x-forwarded-user`, `cookie` and `authorization`
-  headers and their values.
-- `data/trace.jsonl` is capped at 1 MiB. When full, it becomes
-  `trace.1.jsonl`, replacing the previous one. Nothing serves it over HTTP:
-  read it on the bot's disk. `TRACE_FILE` moves it.
+- The `x-forwarded-user`, `cookie` and `authorization` headers never reach a
+  log line, and their values are blanked out wherever they appear.
+- Anything that looks like an email address or a Bearer or Basic credential
+  is blanked out too, in every line. A thrown value that is not an `Error` is
+  logged as its type only.
+- `data/trace.jsonl` is capped at 1 MiB. Before it would grow past that, it
+  becomes `trace.1.jsonl`, replacing the previous one. Nothing serves it over
+  HTTP: read it on the bot's disk. `TRACE_FILE` moves it: the name must end in
+  `.jsonl`, and inside the app it must stay under `data/`.
+- `data/` is also where stores belong. `npm start` serves only `dist/client`,
+  and `vite.config.ts` keeps `data/` out of what `npm run dev` serves.
 
 The server stops cleanly on SIGTERM or Ctrl-C: it stops taking connections,
-lets requests in flight finish (up to 10 seconds), then exits. An error that
+lets requests in flight finish (up to 10 seconds), closes hot-reload
+connections, then exits. An error that
 nothing catches is logged, and the server exits with code 1, so a bot service
 restarts it.
 
