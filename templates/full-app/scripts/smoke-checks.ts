@@ -63,7 +63,9 @@ export async function smoke(
         isText(field(viewer, "userId")) &&
         isTextOrNull(field(viewer, "email")) &&
         isTextOrNull(field(viewer, "name")) &&
-        isTextOrNull(field(viewer, "role"))
+        isTextOrNull(field(viewer, "role")) &&
+        // Always there, even while it is null.
+        isTextOrNull(field(viewer, "avatarUrl"))
       return ok ? null : "a member without its user fields"
     }
     if (kind === "unknown") {

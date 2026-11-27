@@ -81,13 +81,23 @@ const server = spawn(process.execPath, ["server/index.ts"], {
 const serverExited = closed(server)
 let smoke: { child: ChildProcess; exited: Promise<number> } | undefined
 
-/** Stops whatever is running, then removes the trace directory. */
-async function cleanup(): Promise<void> {
-  await Promise.all([
-    smoke ? stop(smoke.child, smoke.exited) : Promise.resolve(),
-    stop(server, serverExited),
-  ])
-  await rm(traceDir, { recursive: true, force: true })
+let cleaning: Promise<void> | undefined
+
+/**
+ * Stops whatever is running, then removes the trace directory. Single-flight:
+ * a second call (a signal during a normal stop, say) waits for the first
+ * instead of signalling the app again. The app takes a second SIGTERM as
+ * "exit now", which would cut its drain short.
+ */
+function cleanup(): Promise<void> {
+  cleaning ??= (async () => {
+    await Promise.all([
+      smoke ? stop(smoke.child, smoke.exited) : Promise.resolve(),
+      stop(server, serverExited),
+    ])
+    await rm(traceDir, { recursive: true, force: true })
+  })()
+  return cleaning
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

@@ -2,7 +2,7 @@
 // to stop before it removes the app's trace directory or returns, and fail
 // when the app does not start or does not stop.
 import assert from "node:assert/strict"
-import { spawn } from "node:child_process"
+import { spawn, type ChildProcess } from "node:child_process"
 import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
@@ -34,6 +34,7 @@ afterEach(async () => {
 /**
  * A stand-in server. On SIGTERM it waits `drainMs`, records whether its trace
  * directory still exists, and exits 0; with `ignoreTerm` it keeps running.
+ * It counts the SIGTERMs it gets (terms.txt) and notes when it starts draining.
  * `failAtStart` exits 1 before it listens. It notes its pid and TRACE_FILE.
  */
 async function standIn(
@@ -53,8 +54,12 @@ const server = createServer((req, res) => { res.end("{}") })
 server.listen(Number(process.env.PORT), "127.0.0.1", () => {
   console.log(JSON.stringify({ event: "startup" }))
 })
+let terms = 0
 process.on("SIGTERM", () => {
-  if (${String(ignoreTerm)}) return
+  terms += 1
+  writeFileSync("terms.txt", String(terms))
+  if (${String(ignoreTerm)} || terms > 1) return
+  writeFileSync("draining.txt", "")
   setTimeout(() => {
     writeFileSync("stopped.txt", existsSync(path.dirname(trace)) ? "trace dir present" : "trace dir gone")
     process.exit(0)
@@ -69,12 +74,16 @@ process.on("SIGTERM", () => {
  * would hold an output pipe open. A runner still going after 30 s is killed,
  * and that counts as a failure (-1).
  */
-function run(env: Record<string, string> = {}): Promise<number> {
+function run(
+  env: Record<string, string> = {},
+  started: (runner: ChildProcess) => void = () => {}
+): Promise<number> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [runner, app], {
       env: { ...process.env, ...env },
       stdio: "ignore",
     })
+    started(child)
     const timer = setTimeout(() => {
       child.kill("SIGKILL")
     }, 30_000)
@@ -98,6 +107,24 @@ describe("smoke-template", () => {
   it("returns only after an app that drains slowly has stopped, then removes its trace directory", async () => {
     await standIn({ drainMs: 800 })
     assert.equal(await run(), 0)
+    assert.equal(await readFile(path.join(app, "stopped.txt"), "utf8"), "trace dir present")
+    assert.equal(alive(Number(await readFile(path.join(app, "pid.txt"), "utf8"))), false)
+    assert.equal(existsSync(await readFile(path.join(app, "trace-dir.txt"), "utf8")), false)
+  })
+
+  it("stopped while the app drains, it waits for that drain without a second SIGTERM", async () => {
+    await standIn({ drainMs: 1500 })
+    const code = await run({}, (child) => {
+      // Once the app has its first SIGTERM (the run's normal stop), stop the runner.
+      const poll = setInterval(() => {
+        if (existsSync(path.join(app, "draining.txt"))) {
+          clearInterval(poll)
+          child.kill("SIGTERM")
+        }
+      }, 20)
+    })
+    assert.equal(code, 1)
+    assert.equal(await readFile(path.join(app, "terms.txt"), "utf8"), "1")
     assert.equal(await readFile(path.join(app, "stopped.txt"), "utf8"), "trace dir present")
     assert.equal(alive(Number(await readFile(path.join(app, "pid.txt"), "utf8"))), false)
     assert.equal(existsSync(await readFile(path.join(app, "trace-dir.txt"), "utf8")), false)

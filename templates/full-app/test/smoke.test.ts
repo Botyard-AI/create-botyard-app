@@ -121,6 +121,11 @@ describe("catches what is wrong", () => {
     ],
     ["a viewer of an unknown kind", { "/api/me": me({ ...member, kind: "admin" }) }, ["me"]],
     ["a member without its userId", { "/api/me": me({ ...member, userId: undefined }) }, ["me"]],
+    [
+      "a member without avatarUrl (null, but always there)",
+      { "/api/me": me({ ...member, avatarUrl: undefined }) },
+      ["me"],
+    ],
     ["a viewer without a source", { "/api/me": me({ ...bot, source: undefined }) }, ["me"]],
     [
       "a failing readiness check",
