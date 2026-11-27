@@ -97,8 +97,37 @@ export function traceFilePath(root: string, env: NodeJS.ProcessEnv = process.env
   return { file, real }
 }
 
+/** What became of the trace at startup: exactly one of these. */
+type OpenedTrace =
+  | { readonly kind: "opened"; readonly trace: TraceFile; readonly place: TracePlace }
+  /** It could not be kept (see TraceUnavailableError): run without it. */
+  | { readonly kind: "unavailable"; readonly reason: string }
+  /** TRACE_FILE points somewhere unsafe: refuse to start. */
+  | { readonly kind: "invalid"; readonly error: ConfigError }
+
+/** Finds and opens the trace for the app at `root`. */
+export function openTrace(
+  root: string,
+  options: TraceOptions = {},
+  env: NodeJS.ProcessEnv = process.env
+): OpenedTrace {
+  try {
+    const place = traceFilePath(root, env)
+    return { kind: "opened", trace: new TraceFile(place.real, options), place }
+  } catch (err) {
+    if (err instanceof ConfigError) return { kind: "invalid", error: err }
+    if (err instanceof TraceUnavailableError) return { kind: "unavailable", reason: err.message }
+    throw err
+  }
+}
+
+/** Every name the trace's two files go by: as configured, and really. */
+export function traceNames(place: TracePlace): string[] {
+  return [...new Set([place.file, place.real].flatMap((f) => [f, previousFile(f)]))]
+}
+
 /** Where `dir` really is, or nothing when it does not exist. */
-function realpathIfThere(dir: string): string[] {
+export function realpathIfThere(dir: string): string[] {
   try {
     return [realpathSync(dir)]
   } catch (err) {
@@ -108,7 +137,7 @@ function realpathIfThere(dir: string): string[] {
 }
 
 /** True when `child` is `parent` or below it, compared by whole path components. */
-function isInside(parent: string, child: string): boolean {
+export function isInside(parent: string, child: string): boolean {
   const rel = path.relative(parent, child)
   return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel))
 }

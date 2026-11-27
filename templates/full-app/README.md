@@ -56,7 +56,8 @@ service and expose it with `--persistent`.
   - `GET /api/health` says the process answers; `GET /api/ready` says what it
     needs works (see below).
   - `log.ts`, `trace.ts` and `ready.ts` are the logging, the short-term
-    trace and the readiness checks.
+    trace and the readiness checks; `dev-guard.ts` keeps private files out
+    of `npm run dev`.
 - **`src/`** is the UI: React 19, Tailwind CSS v4 and
   [shadcn/ui](https://ui.shadcn.com). Add components with
   `npx shadcn@latest add <name>`.
@@ -143,8 +144,10 @@ What the logs hold:
   those are symlinks to somewhere outside the app. Otherwise the server
   refuses to start. If its directory cannot be created (a read-only disk, say),
   the server starts without a trace and logs `trace_off`.
-- `data/` is also where stores belong. `npm start` serves only `dist/client`,
-  and `vite.config.ts` keeps `data/` out of what `npm run dev` serves.
+- `data/` is also where stores belong. `npm start` serves only `dist/client`.
+  `npm run dev` keeps `data/` and the trace files out by name
+  (`vite.config.ts`), and by where a request really leads, so a symlink
+  elsewhere in the app cannot reach them either (`server/dev-guard.ts`).
 
 The server stops cleanly on SIGTERM or Ctrl-C: it stops taking connections,
 lets requests in flight finish (up to 10 seconds), closes hot-reload

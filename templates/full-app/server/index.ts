@@ -17,14 +17,17 @@ import { appRoot, ConfigError, HOST, loadConfig } from "./config.ts"
 import { createLog } from "./log.ts"
 import { runtimeCheck, type ReadyChecks } from "./ready.ts"
 import { loadStatic, StaticLoadError, type StaticFiles } from "./static.ts"
-import { previousFile, TraceFile, traceFilePath, TraceUnavailableError } from "./trace.ts"
+import { keepPrivate } from "./dev-guard.ts"
+import { openTrace, traceNames } from "./trace.ts"
 
 const dev = process.argv.includes("--dev")
 // TRACE_FILE moves the trace (tests point it at a temporary directory); see trace.ts.
-const { trace, traceDeny, traceError, traceOff } = openTrace()
-const log = createLog({ trace })
-// The trace is optional: when it cannot be kept, say so and carry on.
-if (traceOff !== undefined) log.warn("trace_off", { message: traceOff })
+const opened = openTrace(appRoot, {
+  onError: (err) => {
+    process.stderr.write(`trace: turned off, could not write to it: ${String(err)}\n`)
+  },
+})
+const log = createLog({ trace: opened.kind === "opened" ? opened.trace : undefined })
 let stopping = false
 
 /** Stops at startup with one clear line, before anything listens. */
@@ -34,7 +37,21 @@ function fail(reason: string, message: string): never {
   process.exit(1)
 }
 
-if (traceError !== undefined) fail("config", traceError.message)
+switch (opened.kind) {
+  case "invalid":
+    fail("config", opened.error.message)
+    break
+  // The trace is optional: when it cannot be kept, say so and carry on.
+  case "unavailable":
+    log.warn("trace_off", { message: opened.reason })
+    break
+  case "opened":
+    break
+  default:
+    opened satisfies never
+}
+// The trace's files, by every name, for the dev server to keep out.
+const traceFiles = opened.kind === "opened" ? traceNames(opened.place) : []
 const config = await loadConfigOrFail()
 const runtime = createRuntimeOrFail()
 // /api/ready probes Botyard through a runtime of its own, so a probe never
@@ -55,8 +72,10 @@ if (dev) {
       hmr: { server },
       // vite.config.ts keeps data/ out of what the dev server serves; this
       // adds the trace files themselves, wherever TRACE_FILE puts them.
-      fs: { deny: traceDeny },
+      fs: { deny: traceFiles },
     },
+    // The same, by where each request really leads, symlinks followed: see dev-guard.ts.
+    plugins: [keepPrivate({ root: appRoot, files: traceFiles })],
   })
   ui = vite.middlewares
   closeVite = () => vite.close()
@@ -156,34 +175,6 @@ function shutdown(reason: string): void {
     log.info("stopped")
     process.exit()
   })
-}
-
-type OpenedTrace = {
-  trace?: TraceFile
-  /** For the dev server's deny list. */
-  traceDeny: string[]
-  /** TRACE_FILE is set to somewhere unsafe: refuse to start. */
-  traceError?: ConfigError
-  /** Why there is no trace, when it could not be kept. */
-  traceOff?: string
-}
-
-function openTrace(): OpenedTrace {
-  try {
-    const { file, real } = traceFilePath(appRoot)
-    // Both spellings of both files.
-    const traceDeny = [...new Set([file, real].flatMap((f) => [f, previousFile(f)]))]
-    const trace = new TraceFile(real, {
-      onError: (err) => {
-        process.stderr.write(`trace: turned off, could not write ${file}: ${String(err)}\n`)
-      },
-    })
-    return { trace, traceDeny }
-  } catch (err) {
-    if (err instanceof ConfigError) return { traceDeny: [], traceError: err }
-    if (err instanceof TraceUnavailableError) return { traceDeny: [], traceOff: err.message }
-    throw err
-  }
 }
 
 async function loadConfigOrFail(): Promise<Awaited<ReturnType<typeof loadConfig>>> {

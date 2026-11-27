@@ -26,6 +26,21 @@ async function packageVersion(): Promise<string> {
   return version
 }
 
+/**
+ * Waits for `file` to contain `text`. A request's line reaches the trace just
+ * after the response, and after stdout, so neither says it is there yet.
+ */
+async function fileContains(file: string, text: string): Promise<void> {
+  for (let tries = 0; tries < 100; tries += 1) {
+    const content = await readFile(file, "utf8").catch(() => "")
+    if (content.includes(text)) return
+    await new Promise((resolve) => {
+      setTimeout(resolve, 20)
+    })
+  }
+  throw new Error(`${file} never contained "${text}"`)
+}
+
 const asAda = { headers: { "x-forwarded-user": "ada@example.com" } }
 
 describe("starting and stopping", () => {
@@ -242,7 +257,7 @@ describe("the trace and the dev server", () => {
       await run.waitFor('"event":"startup"')
       await fetch(`${run.base}/api/health?q=active-marker`)
       await fetch(`${run.base}/active-marker`)
-      expect(await readFile(trace, "utf8")).toContain("active-marker")
+      await fileContains(trace, "active-marker")
 
       const rel = path.relative(appRoot, trace)
       const relRotated = path.relative(appRoot, rotated)
@@ -263,6 +278,62 @@ describe("the trace and the dev server", () => {
       }
       // Vite's own deny list still applies.
       expect(await (await fetch(`${run.base}/.npmrc`)).text()).not.toContain("ignore-scripts")
+      run.kill("SIGTERM")
+      expect(await run.closed).toBe(0)
+    }
+  }, 60_000)
+
+  test("a symlink in what Vite serves does not lead to the trace, or to data/", async () => {
+    const name = `alias-${String(process.pid)}-${String(Date.now())}`
+    const dataDir = path.join(appRoot, "data")
+    await mkdir(dataDir, { recursive: true })
+    const trace = path.join(dataDir, `${name}.jsonl`)
+    const rotated = trace.replace(/\.jsonl$/, ".1.jsonl")
+    // Outside the app too: denied by name, but an alias has another name.
+    const outside = path.join(dir, `${name}.jsonl`)
+    const outsideRotated = outside.replace(/\.jsonl$/, ".1.jsonl")
+    // Aliases that already exist in the served tree, with harmless names.
+    const links: [string, string][] = [
+      [path.join(appRoot, "src", `${name}-active.txt`), trace],
+      [path.join(appRoot, "src", `${name}-rotated.txt`), rotated],
+      [path.join(appRoot, `${name}-data`), dataDir],
+      [path.join(appRoot, "src", `${name}-out-active.txt`), outside],
+      [path.join(appRoot, "src", `${name}-out-rotated.txt`), outsideRotated],
+    ]
+    cleanup.push(async () => {
+      for (const file of [trace, rotated, ...links.map(([link]) => link)]) {
+        await rm(file, { force: true })
+      }
+    })
+    for (const [link, target] of links) await symlink(target, link)
+
+    for (const [active, old] of [
+      [trace, rotated],
+      [outside, outsideRotated],
+    ] as const) {
+      await writeFile(old, '{"event":"rotated-marker"}\n')
+      const run = await startServer({ env: { TRACE_FILE: active } })
+      await run.waitFor('"event":"startup"')
+      await fetch(`${run.base}/active-marker`)
+      await fileContains(active, "active-marker")
+
+      const dataAliasTrace = path.join(appRoot, `${name}-data`, path.basename(trace))
+      const probes = [
+        ...links.flatMap(([link]) => {
+          const rel = `/${path.relative(appRoot, link)}`
+          return [rel, `${rel}?raw`, `${rel}?import`, `${rel}?url`, `${rel}?inline`, `/@fs${link}`]
+        }),
+        `/${name}-data/${path.basename(trace)}`,
+        `/${name}-data/${path.basename(rotated)}`,
+        `/@fs${dataAliasTrace}`,
+      ]
+      for (const probe of probes) {
+        const text = await (await fetch(`${run.base}${probe}`)).text()
+        expect(text, probe).not.toContain("active-marker")
+        expect(text, probe).not.toContain("rotated-marker")
+      }
+      // The rest of the app is still served.
+      expect((await fetch(`${run.base}/src/main.tsx`)).status).toBe(200)
       run.kill("SIGTERM")
       expect(await run.closed).toBe(0)
     }

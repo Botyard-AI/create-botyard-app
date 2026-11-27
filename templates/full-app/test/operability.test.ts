@@ -8,10 +8,12 @@ import { createRuntime, type Transport } from "@botyard/runtime"
 import { createReadiness, runtimeCheck } from "../server/ready.ts"
 import { loadStatic } from "../server/static.ts"
 import {
+  openTrace,
   previousFile,
   readTrace,
   TraceFile,
   traceFilePath,
+  traceNames,
   TraceUnavailableError,
 } from "../server/trace.ts"
 import { asViewer, captureLog, startApp } from "./helpers.ts"
@@ -584,6 +586,22 @@ describe("trace file", () => {
       await rm(path.join(root, "data", "trace.jsonl"))
       await symlink(target, path.join(root, "data", "trace.1.jsonl"))
       expect(() => place()).toThrow(ConfigError)
+    })
+
+    test("openTrace says which of opened, unavailable or invalid it is", async () => {
+      const opened = openTrace(root, {}, { TRACE_FILE: "data/t.jsonl" })
+      expect(opened.kind).toBe("opened")
+      if (opened.kind === "opened") {
+        expect(traceNames(opened.place)).toEqual([
+          path.join(root, "data", "t.jsonl"),
+          path.join(root, "data", "t.1.jsonl"),
+        ])
+      }
+      await writeFile(path.join(dir, "blocker"), "")
+      expect(openTrace(root, {}, { TRACE_FILE: path.join(dir, "blocker", "t.jsonl") }).kind).toBe(
+        "unavailable"
+      )
+      expect(openTrace(root, {}, { TRACE_FILE: "public/t.jsonl" }).kind).toBe("invalid")
     })
 
     test("a TraceFile name must end in .jsonl", () => {
