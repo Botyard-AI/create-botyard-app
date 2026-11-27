@@ -67,22 +67,35 @@ export function traceFilePath(root: string, env: NodeJS.ProcessEnv = process.env
   // As written, before anything is created on disk.
   if (!notServed(file, root)) throw unsafe(file)
 
+  const unavailable = (err: unknown): TraceUnavailableError =>
+    new TraceUnavailableError(
+      `Cannot keep a trace at ${file}: ${err instanceof Error ? err.message : String(err)}`
+    )
   let real: string
   let realRoot: string
-  let servedDirs: string[]
   try {
     mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
     real = path.join(realpathSync(path.dirname(file)), path.basename(file))
     realRoot = realpathSync(root)
-    servedDirs = SERVED_DIRS.flatMap((dir) => realpathIfThere(path.join(root, dir)))
   } catch (err) {
-    throw new TraceUnavailableError(
-      `Cannot keep a trace at ${file}: ${err instanceof Error ? err.message : String(err)}`
-    )
+    throw unavailable(err)
   }
-  if (!notServed(real, realRoot) || servedDirs.some((dir) => isInside(dir, real))) {
-    throw unsafe(real)
+  if (!notServed(real, realRoot)) throw unsafe(real)
+  // Each served directory on its own: one that cannot be resolved must not
+  // keep the others from being checked, so an overlap with one that can be
+  // is still refused rather than merely turning the trace off.
+  let unresolved: unknown = null
+  for (const dir of SERVED_DIRS) {
+    let servedReal: string[]
+    try {
+      servedReal = realpathIfThere(path.join(root, dir))
+    } catch (err) {
+      unresolved = err
+      continue
+    }
+    if (servedReal.some((served) => isInside(served, real))) throw unsafe(real)
   }
+  if (unresolved !== null) throw unavailable(unresolved)
   for (const name of [real, previousFile(real)]) {
     let stats
     try {

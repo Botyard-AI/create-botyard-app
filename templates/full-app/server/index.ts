@@ -17,7 +17,7 @@ import { appRoot, ConfigError, HOST, loadConfig } from "./config.ts"
 import { createLog } from "./log.ts"
 import { runtimeCheck, type ReadyChecks } from "./ready.ts"
 import { loadStatic, StaticLoadError, type StaticFiles } from "./static.ts"
-import { keepPrivate } from "./dev-guard.ts"
+import { isPrivate, keepPrivate } from "./dev-guard.ts"
 import { configuredTraceFiles, openTrace, traceNames } from "./trace.ts"
 
 const dev = process.argv.includes("--dev")
@@ -235,7 +235,10 @@ function appVersion(): string | null {
 async function loadBuiltUi(): Promise<StaticFiles> {
   const dir = path.join(appRoot, "dist", "client")
   try {
-    return await loadStatic(dir)
+    // Never the trace or anything in data/, even if dist/client leads to them.
+    return await loadStatic(dir, {
+      exclude: (file) => isPrivate({ root: appRoot, files: traceFiles }, file),
+    })
   } catch (err) {
     if (err instanceof Error && "code" in err && err.code === "ENOENT") {
       fail("no_build", `No built UI in ${dir}. Run \`npm run build\` first.`)

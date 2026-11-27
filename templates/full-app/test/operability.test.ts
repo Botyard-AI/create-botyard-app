@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { afterEach, beforeEach, describe, expect, test } from "vitest"
@@ -568,6 +568,25 @@ describe("trace file", () => {
       }
     )
 
+    test("an overlap with a served directory is refused even when another cannot be resolved", async () => {
+      // dist/client a symlink to a release directory; public/ a symlink loop.
+      const release = path.join(dir, "release")
+      await mkdir(release)
+      await rm(path.join(root, "dist", "client"), { recursive: true })
+      await symlink(release, path.join(root, "dist", "client"))
+      await rm(path.join(root, "public"), { recursive: true })
+      await symlink(path.join(root, "public"), path.join(root, "public"))
+      expect(() => place(path.join(release, "t.jsonl"))).toThrow(ConfigError)
+      // Elsewhere, the loop only turns the trace off.
+      expect(() => place(path.join(dir, "logs", "t.jsonl"))).toThrow(TraceUnavailableError)
+      // And the other way round: dist/client the loop, public/ the release.
+      await rm(path.join(root, "dist", "client"))
+      await rm(path.join(root, "public"))
+      await symlink(path.join(root, "dist", "client"), path.join(root, "dist", "client"))
+      await symlink(release, path.join(root, "public"))
+      expect(() => place(path.join(release, "t.jsonl"))).toThrow(ConfigError)
+    })
+
     test("a directory that cannot be created means no trace, not a config error", async () => {
       // A file where the trace's directory should be.
       await writeFile(path.join(dir, "blocker"), "")
@@ -640,6 +659,19 @@ describe("trace file", () => {
     expect((await fetch(`${base}/api/health`)).status).toBe(200)
     expect(errors).toHaveLength(1)
   })
+
+  test.skipIf(process.platform !== "linux")(
+    "the built UI leaves out excluded files, by where they really are",
+    async () => {
+      const client = path.join(dir, "client")
+      await mkdir(client, { recursive: true })
+      await writeFile(path.join(client, "index.html"), "<!doctype html>app")
+      await writeFile(path.join(client, "trace.jsonl"), '{"event":"x"}\n')
+      const real = await realpath(path.join(client, "trace.jsonl"))
+      const files = await loadStatic(client, { exclude: (file) => file === real })
+      expect([...files.keys()]).toEqual(["/index.html"])
+    }
+  )
 
   // The trace is a file on the bot's disk: no route serves it, and it is not
   // part of the built UI, so the Bot Page proxy cannot reach it.

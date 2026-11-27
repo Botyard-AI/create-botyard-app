@@ -189,6 +189,40 @@ test("starts and stays healthy when the trace cannot be kept", async () => {
   expect((await stat(blocker)).isFile()).toBe(true)
 }, 30_000)
 
+// `npm start` with dist/client a symlink to a release directory that holds an
+// earlier run's trace files, and public/ unresolvable (a symlink loop). The
+// overlap with the built UI is refused; it does not merely turn the trace
+// off and then serve those files. Only when the app has no build and no
+// public/ of its own, which are left alone (CI tests before it builds).
+const distDir = path.join(appRoot, "dist")
+test.skipIf(existsSync(distDir) || existsSync(publicDir) || process.platform !== "linux")(
+  "npm start refuses a trace in the built UI's real directory, whatever else fails",
+  async () => {
+    const release = path.join(dir, "release")
+    await mkdir(release)
+    await writeFile(path.join(release, "index.html"), "<!doctype html>app")
+    await writeFile(path.join(release, "trace.jsonl"), '{"event":"active-marker"}\n')
+    await writeFile(path.join(release, "trace.1.jsonl"), '{"event":"rotated-marker"}\n')
+    await mkdir(distDir)
+    await symlink(release, path.join(distDir, "client"))
+    await symlink(publicDir, publicDir)
+    cleanup.push(async () => {
+      await rm(distDir, { recursive: true, force: true })
+      await rm(publicDir, { force: true })
+    })
+    const run = await startServer({
+      env: { NODE_ENV: "production", TRACE_FILE: path.join(release, "trace.jsonl") },
+      dev: false,
+    })
+    expect(await run.closed).toBe(1)
+    expect(run.stderr()).toContain("not under its data/ directory")
+    expect(await readFile(path.join(release, "trace.jsonl"), "utf8")).toBe(
+      '{"event":"active-marker"}\n'
+    )
+  },
+  30_000
+)
+
 describe("errors nothing caught", () => {
   // A preload that, on SIGUSR2, throws or rejects outside any request.
   const preload = async (kind: "throw" | "reject"): Promise<string> => {

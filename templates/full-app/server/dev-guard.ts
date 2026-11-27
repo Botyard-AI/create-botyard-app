@@ -1,4 +1,5 @@
-// Keeps the app's private files out of what `npm run dev` serves.
+// Keeps the app's private files out of what `npm run dev` serves. `npm start`
+// uses isPrivate too, to leave them out of the built UI it loads (index.ts).
 //
 // vite.config.ts denies data/ and index.ts denies the trace files by name
 // (server.fs.deny), but Vite checks the name a request asks for, then opens

@@ -150,8 +150,6 @@ describe("through a real Vite dev server", () => {
     await symlink(path.join(root, "data", "store.json"), path.join(root, "src", "b.txt"))
     await start([trace])
     await expect(vite.transformRequest("/src/b.txt?raw")).rejects.toThrow("private")
-    await expect(vite.transformRequest("/src/main.ts")).resolves.toMatchObject({
-      code: expect.stringContaining("ui-marker") as unknown,
-    })
+    expect((await vite.transformRequest("/src/main.ts"))?.code).toContain("ui-marker")
   })
 })
