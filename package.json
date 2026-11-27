@@ -19,6 +19,7 @@
     "build:sdk": "pnpm --filter @botyard/runtime --filter @botyard/botpage run build",
     "build:registry": "shadcn build registry/registry.json --output registry/dist/r",
     "check:blocks": "node scripts/check-blocks.ts",
+    "smoke:template": "node scripts/smoke-template.ts",
     "knip": "knip"
   },
   "devDependencies": {

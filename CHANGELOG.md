@@ -44,6 +44,11 @@ Packages are released separately. A release section is headed
   - Recent requests and errors are kept in `data/trace.jsonl`, capped and
     rotated, and never served. `npm run trace` prints them.
   - The README has a "When the app misbehaves" section.
+- The `full-app` template has `npm run smoke`: it checks health, readiness,
+  the UI, `/api/me` and that a members-only route refuses an outsider, prints
+  a pass/fail table and exits 1 on a failure. `-- --browser` prints the same
+  checks for a browser signed in to the published Bot Page as the bot. CI runs
+  it against the built template.
 
 ## [create-botyard-app@0.1.3] - 2026-11-25
 

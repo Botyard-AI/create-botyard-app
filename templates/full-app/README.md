@@ -35,11 +35,40 @@ Node 22 (22.18 or later) or Node 24: the server is TypeScript that Node runs dir
 | `npm start` | Serves the API and the built UI (`NODE_ENV=production`). The UI is read into memory at startup: restart after a rebuild. Linux only (as in a bot): it checks each file through `/proc`, and refuses to start without it. |
 | `npm run expose` | Publishes the running app as a Bot Page through the `expose_botpage` tool. Add `-- --persistent` to keep it until revoked; otherwise it expires after two hours. |
 | `npm run trace` | Prints recent requests and errors from `data/trace.jsonl`. See [When the app misbehaves](#when-the-app-misbehaves). |
+| `npm run smoke` | Checks the running app and prints a pass/fail table: health, readiness, the UI, `/api/me`, and that a members-only route refuses an outsider. See [Checking a running app](#checking-a-running-app). |
 | `npm test` | Tests against the mock runtime: no bot needed. |
 | `npm run typecheck`, `npm run lint`, `npm run format` | TypeScript, ESLint and Prettier. |
 
 To keep the app running after your session ends, run `npm start` as a bot
 service and expose it with `--persistent`.
+
+## Checking a running app
+
+Run `npm run smoke` after `npm start`, and again after `npm run expose`. It
+exits 1 when a check fails, so it also works in CI.
+
+| Check | Passes when |
+| --- | --- |
+| `health` | `GET /api/health` answers 200. |
+| `ready` | `GET /api/ready` answers 200. On 503 it names the failed checks. |
+| `index` | `GET /` serves the UI's `index.html`. |
+| `me` | `GET /api/me` answers `{ "viewer": … }`, `null` or a viewer with a `kind`. |
+| `guard` | `GET /api/hello` refuses someone who is not an org member with 403. |
+
+- **On this machine:** `npm run smoke` checks `http://127.0.0.1:<port>`
+  (from `botyard.json`); `npm run smoke -- <url>` checks another address.
+  The outsider is a made-up address in `x-forwarded-user`, which the app
+  trusts from 127.0.0.1 only.
+- **At the Bot Page:** Botyard signs every visitor in and sets
+  `x-forwarded-user` itself, so a script can't pretend to be someone. Open
+  the page in a browser signed in as the bot (the `botyard-botpages` skill's
+  self-view), then evaluate the function `npm run smoke -- --browser` prints
+  in that tab. It runs the same checks there and resolves to them as JSON. The bot is the
+  outsider: it is not an org member, so `guard` passing proves the
+  members-only route and the proxy together, and `me` must say `bot`.
+
+If you rename or remove `/api/hello`, change the `guard` check in
+`scripts/smoke-checks.ts` to a members-only route of your own.
 
 ## How it fits together
 
